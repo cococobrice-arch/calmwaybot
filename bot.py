@@ -42,6 +42,7 @@ async def cmd_start(message: Message):
 @dp.callback_query(F.data == "get_material")
 async def send_material(callback: CallbackQuery):
     if LINK and os.path.exists(LINK):
+        # Отправляем локальный файл с русским именем
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
         await callback.message.answer_document(file, caption="Ваш гайд готов 📘")
         await callback.answer()
