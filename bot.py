@@ -46,11 +46,12 @@ async def cmd_start(message: Message):
 # -------------------- Хэндлер нажатия на кнопку "Получить материал" --------------------
 @router.callback_query(F.data == "get_material")
 async def send_material(callback: CallbackQuery):
-    # Сначала отправляем кружок, если ID задан
+    # Сначала отправляем кружок
     if VIDEO_NOTE_FILE_ID:
         try:
             await callback.message.answer_chat_action("upload_video_note")
             await callback.message.answer_video_note(VIDEO_NOTE_FILE_ID)
+            await asyncio.sleep(2)  # небольшая пауза, чтобы кружок успел отправиться
         except Exception as e:
             logger.warning(f"Не удалось отправить кружок: {e}")
 
