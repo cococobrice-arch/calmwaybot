@@ -1,6 +1,6 @@
-# Python
-__pycache__/
+л# Byte-compiled / compiled files
 *.pyc
+__pycache__/
 
 # Virtual environment
 venv/
@@ -14,4 +14,7 @@ Thumbs.db
 
 # Scheduler or logs
 *.log
+
+# Ignore local PDF materials
 Выход из панического круга.pdf
+
