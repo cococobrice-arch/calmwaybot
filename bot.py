@@ -2,10 +2,10 @@ import os
 import asyncio
 import logging
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
 
-# Настройка логов (для journalctl)
+# Настройка логов
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -19,10 +19,12 @@ if not BOT_TOKEN:
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+router = Router()
+dp.include_router(router)
 
+# -------------------- Хэндлеры --------------------
 
-# Хэндлер команды /start
-@dp.message(F.text == "/start")
+@router.message(F.text == "/start")
 async def cmd_start(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📘 Получить гайд", callback_data="get_material")]
@@ -41,8 +43,7 @@ async def cmd_start(message: Message):
     )
 
 
-# Хэндлер нажатия на кнопку "Получить материал"
-@dp.callback_query(F.data == "get_material")
+@router.callback_query(F.data == "get_material")
 async def send_material(callback: CallbackQuery):
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
@@ -53,17 +54,17 @@ async def send_material(callback: CallbackQuery):
         await callback.answer()
 
 
-# Временный хэндлер для получения file_id кружка
-@dp.message(F.video_note)
+# ⚙️ Временный хэндлер для получения file_id кружка
+@router.message(F.video_note)
 async def get_video_note_id(message: Message):
     await message.answer(f"File ID кружка:\n{message.video_note.file_id}")
 
+# -------------------- Запуск --------------------
 
-# Основной запуск
 async def main():
     logger.info("Бот запущен.")
     await dp.start_polling(bot)
 
-
 if __name__ == "__main__":
     asyncio.run(main())
+
