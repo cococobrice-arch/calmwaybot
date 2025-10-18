@@ -49,8 +49,8 @@ async def send_material(callback: CallbackQuery):
     # Сначала отправляем кружок
     if VIDEO_NOTE_FILE_ID:
         try:
-            await callback.message.answer_chat_action("upload_video_note")
-            await callback.message.answer_video_note(VIDEO_NOTE_FILE_ID)
+            await bot.send_chat_action(chat_id=callback.message.chat.id, action="upload_video_note")
+            await bot.send_video_note(chat_id=callback.message.chat.id, video_note=VIDEO_NOTE_FILE_ID)
             await asyncio.sleep(2)  # небольшая пауза, чтобы кружок успел отправиться
         except Exception as e:
             logger.warning(f"Не удалось отправить кружок: {e}")
@@ -58,11 +58,11 @@ async def send_material(callback: CallbackQuery):
     # Затем отправляем материал
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
-        await callback.message.answer_document(file, caption="Первый шаг сделан 💪")
+        await bot.send_document(chat_id=callback.message.chat.id, document=file, caption="Первый шаг сделан 💪")
     elif LINK and LINK.startswith("http"):
-        await callback.message.answer(f"📘 Ваш материал доступен по ссылке: {LINK}")
+        await bot.send_message(chat_id=callback.message.chat.id, text=f"📘 Ваш материал доступен по ссылке: {LINK}")
     else:
-        await callback.message.answer("⚠️ Файл не найден. Пожалуйста, попробуйте позже.")
+        await bot.send_message(chat_id=callback.message.chat.id, text="⚠️ Файл не найден. Пожалуйста, попробуйте позже.")
 
     await callback.answer()
 
