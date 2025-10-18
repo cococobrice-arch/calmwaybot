@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
 
-# Настройка логов (чтобы journalctl показывал события)
+# Настройка логов (для journalctl)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,18 @@ async def cmd_start(message: Message):
 @dp.callback_query(F.data == "get_material")
 async def send_material(callback: CallbackQuery):
     if LINK and os.path.exists(LINK):
-        # Отправляем локальный файл с русским именем
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
         await callback.message.answer_document(file, caption="Первый шаг сделан 💪")
         await callback.answer()
     else:
         await callback.message.answer("⚠️ Файл не найден. Пожалуйста, попробуйте позже.")
         await callback.answer()
+
+
+# Временный хэндлер для получения file_id кружка
+@dp.message(F.video_note)
+async def get_video_note_id(message: Message):
+    await message.answer(f"File ID кружка:\n{message.video_note.file_id}")
 
 
 # Основной запуск
@@ -62,11 +67,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
-    @dp.message()
-async def echo_file_id(message: types.Message):
-    if message.video_note:
-        await message.answer(f"File ID кружка:\n{message.video_note.file_id}")
-    else:
-        await message.answer("Это не кружок 😅")
-
