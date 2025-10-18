@@ -5,25 +5,26 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
 
-# Настройка логов
+# -------------------- Настройка логов --------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Загружаем переменные окружения
+# -------------------- Загрузка переменных окружения --------------------
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 LINK = os.getenv("LINK_TO_MATERIAL")
+VIDEO_NOTE_FILE_ID = os.getenv("VIDEO_NOTE_FILE_ID")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден в .env")
 
+# -------------------- Инициализация --------------------
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
-# -------------------- Хэндлеры --------------------
-
+# -------------------- Хэндлер команды /start --------------------
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -42,29 +43,32 @@ async def cmd_start(message: Message):
         reply_markup=kb
     )
 
-
+# -------------------- Хэндлер нажатия на кнопку "Получить материал" --------------------
 @router.callback_query(F.data == "get_material")
 async def send_material(callback: CallbackQuery):
+    # Сначала отправляем кружок, если ID задан
+    if VIDEO_NOTE_FILE_ID:
+        try:
+            await callback.message.answer_chat_action("upload_video_note")
+            await callback.message.answer_video_note(VIDEO_NOTE_FILE_ID)
+        except Exception as e:
+            logger.warning(f"Не удалось отправить кружок: {e}")
+
+    # Затем отправляем материал
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
         await callback.message.answer_document(file, caption="Первый шаг сделан 💪")
-        await callback.answer()
+    elif LINK and LINK.startswith("http"):
+        await callback.message.answer(f"📘 Ваш материал доступен по ссылке: {LINK}")
     else:
         await callback.message.answer("⚠️ Файл не найден. Пожалуйста, попробуйте позже.")
-        await callback.answer()
 
-
-# ⚙️ Временный хэндлер для получения file_id кружка
-@router.message(F.video_note)
-async def get_video_note_id(message: Message):
-    await message.answer(f"File ID кружка:\n{message.video_note.file_id}")
+    await callback.answer()
 
 # -------------------- Запуск --------------------
-
 async def main():
     logger.info("Бот запущен.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
