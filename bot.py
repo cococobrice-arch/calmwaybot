@@ -82,7 +82,7 @@ async def send_material(callback: CallbackQuery):
 # 3. ОТЛОЖЕННОЕ СООБЩЕНИЕ
 # =========================================================
 async def send_followup_message(chat_id: int):
-    await asyncio.sleep(120)  # 2 минуты задержки
+    await asyncio.sleep(20)  #  задержки
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
