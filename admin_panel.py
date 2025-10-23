@@ -164,3 +164,9 @@ async def user_history(user_id: int, password: str):
     </table>
     """
     return html
+# =========================================================
+# Запуск приложения
+# =========================================================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("admin_panel:app", host="0.0.0.0", port=8080)
