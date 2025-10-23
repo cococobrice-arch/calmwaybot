@@ -163,13 +163,18 @@ async def send_followup_message(chat_id: int):
 # =========================================================
 async def schedule_next_message(chat_id: int):
     try:
+        # Пытаемся проверить подписку
         member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
         is_subscribed = member.status in ["member", "administrator", "creator"]
         update_user(chat_id, subscribed=1 if is_subscribed else 0)
-        await asyncio.sleep(10)
-        asyncio.create_task(send_chat_invite(chat_id))
-    except TelegramBadRequest as e:
-        logger.warning(f"Не удалось проверить подписку: {e}")
+    except Exception as e:
+        # Если бот не имеет доступа к каналу — просто продолжаем сценарий
+        logger.warning(f"Не удалось проверить подписку или нет доступа к каналу: {e}")
+        is_subscribed = False
+
+    # Переход к следующему сообщению вне зависимости от результата
+    await asyncio.sleep(10)
+    asyncio.create_task(send_chat_invite(chat_id))
 
 # =========================================================
 # 5. ПРИГЛАШЕНИЕ В ЧАТ
@@ -281,8 +286,6 @@ async def trigger_after_test(chat_id: int, previous_step: str):
     step_now = get_user_step(chat_id)
     if step_now in ("avoidance_offer", "avoidance_done"):
         await send_case_story(chat_id)
-
-
 # =========================================================
 # 10. ИСТОРИЯ ПАЦИЕНТА
 # =========================================================
