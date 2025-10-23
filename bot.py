@@ -34,6 +34,9 @@ dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
+# Тестовые пользователи (полная очистка на /start)
+TEST_USER_IDS = {458421198, 7181765102}
+
 # =========================================================
 # 0. БАЗА ДАННЫХ
 # =========================================================
@@ -66,47 +69,79 @@ def init_db():
         )
     """)
     conn.commit()
+    # Добавим колонку username в users, если её нет
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     conn.close()
 
+def log_event(user_id: int, action: str, details: str = None):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO events (user_id, timestamp, action, details) VALUES (?, ?, ?, ?)",
+        (user_id, datetime.now().isoformat(timespec='seconds'), action, details)
+    )
+    conn.commit()
+    conn.close()
 
-def update_user(user_id: int, step: str = None, subscribed: int = None):
+def upsert_user(user_id: int, step: str = None, subscribed: int = None, username: str = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     exists = cursor.fetchone()
+
+    now = datetime.now()
     if exists:
-        if step:
+        if step is not None and username is not None:
+            cursor.execute("UPDATE users SET step=?, username=?, last_action=? WHERE user_id=?",
+                           (step, username, now, user_id))
+        elif step is not None:
             cursor.execute("UPDATE users SET step=?, last_action=? WHERE user_id=?",
-                           (step, datetime.now(), user_id))
+                           (step, now, user_id))
         if subscribed is not None:
             cursor.execute("UPDATE users SET subscribed=?, last_action=? WHERE user_id=?",
-                           (subscribed, datetime.now(), user_id))
+                           (subscribed, now, user_id))
+        if username is not None and step is None:
+            cursor.execute("UPDATE users SET username=?, last_action=? WHERE user_id=?",
+                           (username, now, user_id))
     else:
-        cursor.execute("INSERT INTO users (user_id, source, step, subscribed, last_action) VALUES (?, ?, ?, ?, ?)",
-                       (user_id, "unknown", step or "start", subscribed or 0, datetime.now()))
+        cursor.execute(
+            "INSERT INTO users (user_id, source, step, subscribed, last_action, username) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, "unknown", step or "start", subscribed or 0, now, username)
+        )
     conn.commit()
     conn.close()
 
-
-def log_event(user_id: int, action: str, details: str = None):
-    """Запись событий в таблицу events."""
+def purge_user(user_id: int):
+    """Полная очистка данных пользователя (для тестовых аккаунтов): users, answers, events."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO events (user_id, timestamp, action, details) VALUES (?, ?, ?, ?)",
-                   (user_id, datetime.now().isoformat(timespec='seconds'), action, details))
+    cursor.execute("DELETE FROM events WHERE user_id=?", (user_id,))
+    cursor.execute("DELETE FROM answers WHERE user_id=?", (user_id,))
+    cursor.execute("DELETE FROM users WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
-
 
 init_db()
 
 # =========================================================
-# 1. ПРИВЕТСТВИЕ
+# 1. ПРИВЕТСТВИЕ (/start)
 # =========================================================
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
-    update_user(message.from_user.id, step="start")
-    log_event(message.from_user.id, "start", "Пользователь запустил бота")
+    user_id = message.from_user.id
+    uname = (message.from_user.username or "").strip()
+    display_uname = uname if uname else None
+
+    # Очистка для тестовых пользователей — полный сброс
+    if user_id in TEST_USER_IDS:
+        purge_user(user_id)
+
+    upsert_user(user_id, step="start", username=display_uname)
+    log_event(user_id, "user_start", "Пользователь запустил бота")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📘 Получить гайд", callback_data="get_material")]
@@ -131,8 +166,9 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data == "get_material")
 async def send_material(callback: CallbackQuery):
     chat_id = callback.message.chat.id
-    update_user(chat_id, step="got_material")
-    log_event(chat_id, "get_material", "Пользователь получил гайд")
+    uname = (callback.from_user.username or "").strip() if callback.from_user else None
+    upsert_user(chat_id, step="got_material", username=uname or None)
+    log_event(chat_id, "user_clicked_get_material", "Нажал «Получить гайд»")
 
     if VIDEO_NOTE_FILE_ID:
         try:
@@ -154,7 +190,7 @@ async def send_material(callback: CallbackQuery):
     await callback.answer()
 
 # =========================================================
-# 3. ПРОВЕРКА ПОДПИСКИ
+# 3. ПРОВЕРКА ПОДПИСКИ (если подписан — не шлём приглашение)
 # =========================================================
 async def check_subscription_and_invite(chat_id: int):
     await asyncio.sleep(5)
@@ -162,13 +198,12 @@ async def check_subscription_and_invite(chat_id: int):
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
         is_subscribed = member.status in ["member", "administrator", "creator"]
-        update_user(chat_id, subscribed=1 if is_subscribed else 0)
-        log_event(chat_id, "subscription_checked", f"Подписан: {is_subscribed}")
+        upsert_user(chat_id, subscribed=1 if is_subscribed else 0)
+        log_event(chat_id, "bot_subscription_checked", f"Подписан: {is_subscribed}")
     except Exception as e:
         logger.warning(f"Ошибка проверки подписки: {e}")
-        log_event(chat_id, "subscription_checked", "Ошибка проверки, пропущено")
+        log_event(chat_id, "bot_subscription_checked", "Ошибка проверки")
 
-    # если уже подписан — пропускаем приглашение
     if not is_subscribed:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -183,12 +218,12 @@ async def check_subscription_and_invite(chat_id: int):
             "Подписывайтесь и получайте практические рекомендации 👇🏽"
         )
         await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
-        log_event(chat_id, "channel_invite_sent", "Отправлено приглашение подписаться на канал")
+        log_event(chat_id, "bot_channel_invite_sent", "Отправлено приглашение подписаться на канал")
 
     asyncio.create_task(send_after_material(chat_id))
 
 # =========================================================
-# 4. ОПРОС
+# 4. ОПРОС ПО ИЗБЕГАНИЮ
 # =========================================================
 async def send_after_material(chat_id: int):
     await asyncio.sleep(5)
@@ -209,8 +244,8 @@ avoidance_questions = [
 async def start_avoidance_test(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     await callback.answer()
-    update_user(chat_id, step="avoidance_test")
-    log_event(chat_id, "avoidance_test_started", "Начат опрос избегания")
+    upsert_user(chat_id, step="avoidance_test")
+    log_event(chat_id, "user_clicked_avoidance_start", "Начал опрос избегания")
     await bot.send_message(chat_id, "Опрос: давайте проверим, правильно ли Вы действуете. Ответьте на 8 вопросов.")
     await send_question(chat_id, 0)
 
@@ -220,7 +255,9 @@ async def send_avoidance_intro(chat_id: int):
         "Давайте проверим, насколько выражено избегание ситуаций, связанных со страхом.\n"
         "🧩 Пройдите короткий тест — всего 8 вопросов."
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Начать опрос", callback_data="avoidance_start")]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Начать опрос", callback_data="avoidance_start")]]
+    )
     await bot.send_message(chat_id, text, reply_markup=kb)
 
 async def send_question(chat_id: int, index: int):
@@ -246,7 +283,7 @@ async def handle_answer(callback: CallbackQuery):
     cursor.execute("INSERT INTO answers (user_id, question, answer) VALUES (?, ?, ?)", (chat_id, idx, ans))
     conn.commit()
     conn.close()
-    log_event(chat_id, "avoidance_answer", f"Вопрос {idx+1}: {ans.upper()}")
+    log_event(chat_id, "user_answer", f"Вопрос {idx+1}: {ans.upper()}")
     await callback.answer()
     await send_question(chat_id, idx + 1)
 
@@ -258,8 +295,8 @@ async def finish_test(chat_id: int):
     conn.close()
 
     yes_count = answers.count("yes")
-    update_user(chat_id, step="avoidance_done")
-    log_event(chat_id, "avoidance_test_finished", f"Ответов 'ДА': {yes_count}")
+    upsert_user(chat_id, step="avoidance_done")
+    log_event(chat_id, "user_finished_test", f"Ответов 'ДА': {yes_count}")
 
     if yes_count >= 4:
         text = (
@@ -290,8 +327,8 @@ async def send_case_story(chat_id: int):
         "Мы начали постепенно возвращать эти ситуации — и паника утратила власть."
     )
     await bot.send_message(chat_id, text)
-    update_user(chat_id, step="case_story")
-    log_event(chat_id, "case_story_sent", "Отправлена история пациента")
+    upsert_user(chat_id, step="case_story")
+    log_event(chat_id, "bot_case_story_sent", "Отправлена история пациента")
     asyncio.create_task(send_chat_invite(chat_id))
 
 async def send_chat_invite(chat_id: int):
@@ -302,8 +339,8 @@ async def send_chat_invite(chat_id: int):
         "https://t.me/Ocd_and_Anxiety_Chat"
     )
     await bot.send_message(chat_id, text)
-    update_user(chat_id, step="chat_invite_sent")
-    log_event(chat_id, "chat_invite_sent", "Приглашение в чат отправлено")
+    upsert_user(chat_id, step="chat_invite_sent")
+    log_event(chat_id, "bot_chat_invite_sent", "Приглашение в чат отправлено")
     asyncio.create_task(send_self_disclosure(chat_id))
 
 async def send_self_disclosure(chat_id: int):
@@ -314,8 +351,8 @@ async def send_self_disclosure(chat_id: int):
         "Так я строю свои консультации — живое присутствие и понимание без шаблонов."
     )
     await bot.send_message(chat_id, text)
-    update_user(chat_id, step="self_disclosure")
-    log_event(chat_id, "self_disclosure_sent", "Отправлено сообщение самораскрытия")
+    upsert_user(chat_id, step="self_disclosure")
+    log_event(chat_id, "bot_self_disclosure_sent", "Отправлено сообщение самораскрытия")
     asyncio.create_task(send_consultation_offer(chat_id))
 
 async def send_consultation_offer(chat_id: int):
@@ -327,8 +364,8 @@ async def send_consultation_offer(chat_id: int):
         "Записаться можно здесь: https://лечение-паники.рф"
     )
     await bot.send_message(chat_id, text)
-    update_user(chat_id, step="consultation_offer")
-    log_event(chat_id, "consultation_offer_sent", "Отправлено предложение консультации")
+    upsert_user(chat_id, step="consultation_offer")
+    log_event(chat_id, "bot_consultation_offer_sent", "Отправлено предложение консультации")
 
 # =========================================================
 # 6. ЗАПУСК
