@@ -58,10 +58,8 @@ def init_db():
 def update_user(user_id: int, step: str = None, subscribed: int = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     exists = cursor.fetchone()
-
     if exists:
         if step:
             cursor.execute("UPDATE users SET step=?, last_action=? WHERE user_id=?",
@@ -87,7 +85,6 @@ async def cmd_start(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📘 Получить гайд", callback_data="get_material")]
     ])
-
     await message.answer(
         """Если Вы зашли в этот бот, значит, Ваши тревоги уже успели сильно вмешаться в жизнь. 
 Частое сердцебиение 💓, потемнение в глазах 🌘, головокружение🌀, пот по спине😰, страх потерять рассудок...
@@ -110,7 +107,7 @@ async def send_material(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     update_user(chat_id, step="got_material")
 
-    # Отправляем кружок
+    # кружок
     if VIDEO_NOTE_FILE_ID:
         try:
             await bot.send_chat_action(chat_id=chat_id, action="upload_video_note")
@@ -119,7 +116,7 @@ async def send_material(callback: CallbackQuery):
         except Exception as e:
             logger.warning(f"Не удалось отправить кружок: {e}")
 
-    # Отправляем гайд
+    # материал
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
         await bot.send_document(chat_id=chat_id, document=file, caption="Первый шаг сделан 💪")
@@ -135,7 +132,7 @@ async def send_material(callback: CallbackQuery):
 # 3. ПОДПИСКА НА КАНАЛ
 # =========================================================
 async def send_followup_message(chat_id: int):
-    await asyncio.sleep(20)
+    await asyncio.sleep(10)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Подписаться на канал", url="https://t.me/OcdAndAnxiety")]
@@ -169,9 +166,7 @@ async def schedule_next_message(chat_id: int):
         member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
         is_subscribed = member.status in ["member", "administrator", "creator"]
         update_user(chat_id, subscribed=1 if is_subscribed else 0)
-
-        delay = 30 if is_subscribed else 120
-        await asyncio.sleep(delay)
+        await asyncio.sleep(10)
         asyncio.create_task(send_chat_invite(chat_id))
     except TelegramBadRequest as e:
         logger.warning(f"Не удалось проверить подписку: {e}")
@@ -216,15 +211,12 @@ def get_user_step(user_id):
 def update_user_step(user_id: int, step: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE users SET step=?, last_action=? WHERE user_id=?",
-        (step, datetime.now(), user_id)
-    )
+    cursor.execute("UPDATE users SET step=?, last_action=? WHERE user_id=?", (step, datetime.now(), user_id))
     conn.commit()
     conn.close()
 
 # =========================================================
-# 7. ПЕРЕХОДЫ МЕЖДУ ШАГАМИ
+# 7. ПЕРЕХОДЫ
 # =========================================================
 async def send_next_message(chat_id: int):
     current_step = get_user_step(chat_id)
@@ -239,10 +231,10 @@ async def send_next_message(chat_id: int):
         asyncio.create_task(send_consultation_offer(chat_id))
 
 # =========================================================
-# 8. ШАГ 1 — ПРЕДЛОЖЕНИЕ ПРОЙТИ ТЕСТ
+# 8. ПРЕДЛОЖЕНИЕ ПРОЙТИ ТЕСТ
 # =========================================================
 async def send_avoidance_offer(chat_id: int):
-    await asyncio.sleep(60)
+    await asyncio.sleep(10)
     text = (
         "Многие замечают, что после прочтения гайда тревога немного ослабевает. "
         "Но чтобы понять, как сильно паника влияет на жизнь, можно пройти короткий опрос. "
@@ -276,11 +268,11 @@ async def handle_avoidance_test(callback: CallbackQuery):
     await callback.answer()
 
 async def delayed_case_story(chat_id: int):
-    await asyncio.sleep(60)
+    await asyncio.sleep(10)
     await send_case_story(chat_id)
 
 # =========================================================
-# 10. ШАГ 2 — ИСТОРИЯ ПАЦИЕНТА
+# 10. ИСТОРИЯ ПАЦИЕНТА
 # =========================================================
 async def send_case_story(chat_id: int):
     text = (
@@ -296,11 +288,11 @@ async def send_case_story(chat_id: int):
     asyncio.create_task(delayed_self_disclosure(chat_id))
 
 async def delayed_self_disclosure(chat_id: int):
-    await asyncio.sleep(90)
+    await asyncio.sleep(10)
     await send_self_disclosure(chat_id)
 
 # =========================================================
-# 11. ШАГ 3 — САМОРАСКРЫТИЕ
+# 11. САМОРАСКРЫТИЕ
 # =========================================================
 async def send_self_disclosure(chat_id: int):
     text = (
@@ -314,11 +306,11 @@ async def send_self_disclosure(chat_id: int):
     asyncio.create_task(delayed_consultation_offer(chat_id))
 
 async def delayed_consultation_offer(chat_id: int):
-    await asyncio.sleep(90)
+    await asyncio.sleep(10)
     await send_consultation_offer(chat_id)
 
 # =========================================================
-# 12. ШАГ 4 — ПРИГЛАШЕНИЕ НА КОНСУЛЬТАЦИЮ
+# 12. КОНСУЛЬТАЦИЯ
 # =========================================================
 async def send_consultation_offer(chat_id: int):
     text = (
