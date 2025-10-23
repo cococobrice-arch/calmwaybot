@@ -2,11 +2,10 @@ import os
 import sqlite3
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, Form
+from fastapi.responses import HTMLResponse
 
-# -------------------- Настройка --------------------
+# -------------------- Настройки --------------------
 load_dotenv()
 DB_PATH = os.getenv("DATABASE_PATH", "users.db")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
@@ -47,9 +46,6 @@ th {
 }
 tr:hover {
     background-color: #1f6feb33;
-}
-form {
-    margin-bottom: 20px;
 }
 button {
     background-color: #238636;
@@ -115,7 +111,7 @@ async def panel_auth(password: str = Form(...)):
     rows = ""
     for u in users:
         user_id, source, step, subscribed, last_action = u
-        status = "✅" if subscribed else "❌"
+        status = "✅" if subscribed else "—"
         rows += f"""
         <tr>
             <td>{user_id}</td>
@@ -129,8 +125,7 @@ async def panel_auth(password: str = Form(...)):
 
     html = f"""
     {STYLE}
-    <h1>📊 CalmWayBot — база пользователей</h1>
-    <p>Всего пользователей: {len(users)}</p>
+    <h1>CalmWayBot — Users Database</h1>
     <table>
         <tr><th>ID</th><th>Источник</th><th>Этап</th><th>Подписан</th><th>Последнее действие</th><th></th></tr>
         {rows}
@@ -142,7 +137,7 @@ async def panel_auth(password: str = Form(...)):
     return html
 
 # =========================================================
-# Страница истории пользователя
+# История пользователя
 # =========================================================
 @app.get("/panel-database/user/{user_id}", response_class=HTMLResponse)
 async def user_history(user_id: int, password: str):
@@ -150,25 +145,22 @@ async def user_history(user_id: int, password: str):
         return f"{STYLE}<h1>Доступ запрещён</h1>"
 
     events = get_events(user_id)
-    rows = ""
-    for ev in events:
-        timestamp, action, details = ev
-        details_display = details if details else "-"
-        rows += f"""
-        <tr>
-            <td>{timestamp}</td>
-            <td>{action}</td>
-            <td>{details_display}</td>
-        </tr>
-        """
+    if not events:
+        event_rows = "<tr><td colspan='3'>Нет записей</td></tr>"
+    else:
+        event_rows = ""
+        for ev in events:
+            timestamp, action, details = ev
+            details = details or "-"
+            event_rows += f"<tr><td>{timestamp}</td><td>{action}</td><td>{details}</td></tr>"
 
     html = f"""
     {STYLE}
-    <h1>История действий пользователя {user_id}</h1>
+    <h1>История пользователя {user_id}</h1>
     <a href="/panel-database?password={password}">⬅ Назад к списку</a>
     <table>
-        <tr><th>Время</th><th>Событие</th><th>Детали</th></tr>
-        {rows}
+        <tr><th>Время</th><th>Действие</th><th>Детали</th></tr>
+        {event_rows}
     </table>
     """
     return html
