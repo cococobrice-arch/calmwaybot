@@ -248,7 +248,7 @@ async def send_avoidance_offer(chat_id: int):
     update_user_step(chat_id, "avoidance_offer")
 
 # =========================================================
-# 9. ОБРАБОТКА ОПРОСА
+# 9. ОБРАБОТКА ОПРОСА (исправленный)
 # =========================================================
 @router.callback_query(F.data == "avoidance_test")
 async def handle_avoidance_test(callback: CallbackQuery):
@@ -257,19 +257,31 @@ async def handle_avoidance_test(callback: CallbackQuery):
     current_index = SCENARIO_ORDER.index(current_step)
     test_index = SCENARIO_ORDER.index("avoidance_offer")
 
+    # Ответ пользователю сразу
     if test_index <= current_index:
-        update_user_step(chat_id, "avoidance_done")
         await callback.message.answer("Отлично 👍 Тест пройден. Даже если немного с опозданием — это шаг вперёд.")
     else:
-        update_user_step(chat_id, "avoidance_done")
         await callback.message.answer("Отлично 👍 Тест пройден. Это поможет Вам лучше понять Вашу тревогу.")
-        asyncio.create_task(delayed_case_story(chat_id))
 
+    # Зафиксировать шаг до ответа Telegram
+    update_user_step(chat_id, "avoidance_done")
+
+    # Завершить callback, чтобы Telegram не зависал
     await callback.answer()
 
-async def delayed_case_story(chat_id: int):
+    # Запустить следующее сообщение уже вне контекста callback
+    # (это гарантирует, что задача не будет убита)
+    asyncio.create_task(trigger_after_test(chat_id, current_step))
+
+
+async def trigger_after_test(chat_id: int, previous_step: str):
+    """Переход после теста, с безопасным запуском следующего этапа."""
     await asyncio.sleep(10)
-    await send_case_story(chat_id)
+    # Проверяем: если пользователь ещё не дошёл до истории пациента — запускаем её
+    step_now = get_user_step(chat_id)
+    if step_now in ("avoidance_offer", "avoidance_done"):
+        await send_case_story(chat_id)
+
 
 # =========================================================
 # 10. ИСТОРИЯ ПАЦИЕНТА
