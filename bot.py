@@ -68,6 +68,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def update_user(user_id: int, step: str = None, subscribed: int = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -86,13 +87,16 @@ def update_user(user_id: int, step: str = None, subscribed: int = None):
     conn.commit()
     conn.close()
 
+
 def log_event(user_id: int, action: str, details: str = None):
+    """Запись событий в таблицу events."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT INTO events (user_id, timestamp, action, details) VALUES (?, ?, ?, ?)",
                    (user_id, datetime.now().isoformat(timespec='seconds'), action, details))
     conn.commit()
     conn.close()
+
 
 init_db()
 
@@ -103,6 +107,7 @@ init_db()
 async def cmd_start(message: Message):
     update_user(message.from_user.id, step="start")
     log_event(message.from_user.id, "start", "Пользователь запустил бота")
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📘 Получить гайд", callback_data="get_material")]
     ])
@@ -145,37 +150,46 @@ async def send_material(callback: CallbackQuery):
     else:
         await bot.send_message(chat_id, "⚠️ Файл не найден. Попробуйте позже.")
 
-    asyncio.create_task(send_channel_invite(chat_id))
+    asyncio.create_task(check_subscription_and_invite(chat_id))
     await callback.answer()
 
 # =========================================================
-# 3. ПРИГЛАШЕНИЕ НА КАНАЛ
+# 3. ПРОВЕРКА ПОДПИСКИ И ПРИГЛАШЕНИЕ НА КАНАЛ
 # =========================================================
-async def send_channel_invite(chat_id: int):
+async def check_subscription_and_invite(chat_id: int):
+    """Проверяет подписку и при необходимости отправляет приглашение на канал."""
     await asyncio.sleep(10)
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Подписаться на канал", url="https://t.me/OcdAndAnxiety")]
-        ]
-    )
-    text = (
-        "У меня есть телеграм-канал, где я делюсь нюансами о преодолении тревоги "
-        "и развеиваю мифы о <i>не</i>работающих методах. "
-        "Никакой воды — только проверенные решения. 💧❌\n\n"
-        'Например, я <a href="https://t.me/OcdAndAnxiety/16">писал пост</a> о том, как неправильное дыхание усиливает паническую атаку.\n\n'
-        "Подписывайтесь и получайте практические рекомендации 👇🏽"
-    )
     try:
+        member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
+        status = member.status
+        is_subscribed = status in ["member", "administrator", "creator"]
+        update_user(chat_id, subscribed=1 if is_subscribed else 0)
+        log_event(chat_id, "subscription_checked", f"Подписан: {is_subscribed}")
+    except TelegramBadRequest:
+        is_subscribed = False
+        update_user(chat_id, subscribed=0)
+        log_event(chat_id, "subscription_checked", "Ошибка при проверке подписки")
+
+    if not is_subscribed:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Подписаться на канал", url="https://t.me/OcdAndAnxiety")]
+            ]
+        )
+        text = (
+            "У меня есть телеграм-канал, где я делюсь нюансами о преодолении тревоги "
+            "и развеиваю мифы о <i>не</i>работающих методах. "
+            "Никакой воды — только проверенные решения. 💧❌\n\n"
+            'Например, я <a href="https://t.me/OcdAndAnxiety/16">писал пост</a> о том, как неправильное дыхание усиливает паническую атаку.\n\n'
+            "Подписывайтесь и получайте практические рекомендации 👇🏽"
+        )
         await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
-        update_user(chat_id, step="followup_sent")
         log_event(chat_id, "channel_invite_sent", "Отправлено приглашение подписаться на канал")
-        asyncio.create_task(send_after_material(chat_id))
-    except Exception as e:
-        logger.warning(f"Ошибка при отправке follow-up: {e}")
-        asyncio.create_task(send_after_material(chat_id))
+
+    asyncio.create_task(send_after_material(chat_id))
 
 # =========================================================
-# 4. ПОСЛЕ МАТЕРИАЛА — ОПРОС
+# 4. ОПРОС ПО ИЗБЕГАНИЮ
 # =========================================================
 async def send_after_material(chat_id: int):
     await asyncio.sleep(10)
@@ -223,9 +237,6 @@ async def send_question(chat_id: int, index: int):
     ])
     await bot.send_message(chat_id, f"{index+1}/8. {q}", reply_markup=kb)
 
-# =========================================================
-# 5. ОТВЕТЫ
-# =========================================================
 @router.callback_query(F.data.startswith("ans_"))
 async def handle_answer(callback: CallbackQuery):
     chat_id = callback.message.chat.id
@@ -240,9 +251,6 @@ async def handle_answer(callback: CallbackQuery):
     await callback.answer()
     await send_question(chat_id, idx + 1)
 
-# =========================================================
-# 6. РЕЗУЛЬТАТЫ ОПРОСА
-# =========================================================
 async def finish_test(chat_id: int):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -272,7 +280,7 @@ async def finish_test(chat_id: int):
     asyncio.create_task(send_case_story(chat_id))
 
 # =========================================================
-# 7. ИСТОРИЯ ПАЦИЕНТА
+# 5. ИСТОРИЯ ПАЦИЕНТА, ЧАТ, КОНСУЛЬТАЦИЯ
 # =========================================================
 async def send_case_story(chat_id: int):
     await asyncio.sleep(10)
@@ -287,9 +295,6 @@ async def send_case_story(chat_id: int):
     log_event(chat_id, "case_story_sent", "Отправлена история пациента")
     asyncio.create_task(send_chat_invite(chat_id))
 
-# =========================================================
-# 8. ЧАТ (ДЕНЬ 4)
-# =========================================================
 async def send_chat_invite(chat_id: int):
     await asyncio.sleep(10)
     text = (
@@ -302,9 +307,6 @@ async def send_chat_invite(chat_id: int):
     log_event(chat_id, "chat_invite_sent", "Приглашение в чат отправлено")
     asyncio.create_task(send_self_disclosure(chat_id))
 
-# =========================================================
-# 9. САМОРАСКРЫТИЕ (ДЕНЬ 6)
-# =========================================================
 async def send_self_disclosure(chat_id: int):
     await asyncio.sleep(10)
     text = (
@@ -317,23 +319,20 @@ async def send_self_disclosure(chat_id: int):
     log_event(chat_id, "self_disclosure_sent", "Отправлено сообщение самораскрытия")
     asyncio.create_task(send_consultation_offer(chat_id))
 
-# =========================================================
-# 10. КОНСУЛЬТАЦИЯ (ДЕНЬ 8)
-# =========================================================
 async def send_consultation_offer(chat_id: int):
     await asyncio.sleep(10)
     text = (
         "Если хотите пойти глубже — обсудим не только панические атаки, "
         "но и темы сна и обсессивных мыслей. "
         "🕊 Я провожу индивидуальные консультации, где мы работаем с корнями страха.\n\n"
-        "Записаться можно здесь: https://t.me/OcdAndAnxiety"
+        "Записаться можно здесь: https://лечение-паники.рф"
     )
     await bot.send_message(chat_id, text)
     update_user(chat_id, step="consultation_offer")
     log_event(chat_id, "consultation_offer_sent", "Отправлено предложение консультации")
 
 # =========================================================
-# 11. ЗАПУСК
+# 6. ЗАПУСК
 # =========================================================
 async def main():
     logger.info("Бот запущен.")
