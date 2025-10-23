@@ -10,9 +10,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     CallbackQuery,
-    FSInputFile,
-    ReplyKeyboardMarkup,
-    KeyboardButton
+    FSInputFile
 )
 from aiogram.exceptions import TelegramBadRequest
 
@@ -31,7 +29,6 @@ CHANNEL_USERNAME = "@OcdAndAnxiety"
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден в .env")
 
-# -------------------- Инициализация --------------------
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
@@ -50,6 +47,13 @@ def init_db():
             step TEXT,
             subscribed INTEGER DEFAULT 0,
             last_action TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS answers (
+            user_id INTEGER,
+            question INTEGER,
+            answer TEXT
         )
     """)
     conn.commit()
@@ -81,7 +85,6 @@ init_db()
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
     update_user(message.from_user.id, step="start")
-
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📘 Получить гайд", callback_data="get_material")]
     ])
@@ -95,8 +98,8 @@ async def cmd_start(message: Message):
 
 🖊 Я приготовил материал, который поможет Вам разобраться, что запускает панические атаки, чем они поддерживаются и как перестать им подчиняться.  
 Скачайте его — и дайте отпор страху! 💡""",
-        reply_markup=kb,
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=kb
     )
 
 # =========================================================
@@ -107,31 +110,29 @@ async def send_material(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     update_user(chat_id, step="got_material")
 
-    # кружок
     if VIDEO_NOTE_FILE_ID:
         try:
-            await bot.send_chat_action(chat_id=chat_id, action="upload_video_note")
-            await bot.send_video_note(chat_id=chat_id, video_note=VIDEO_NOTE_FILE_ID)
+            await bot.send_chat_action(chat_id, "upload_video_note")
+            await bot.send_video_note(chat_id, VIDEO_NOTE_FILE_ID)
             await asyncio.sleep(2)
         except Exception as e:
             logger.warning(f"Не удалось отправить кружок: {e}")
 
-    # материал
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
-        await bot.send_document(chat_id=chat_id, document=file, caption="Первый шаг сделан 💪")
+        await bot.send_document(chat_id, document=file, caption="Первый шаг сделан 💪")
     elif LINK and LINK.startswith("http"):
-        await bot.send_message(chat_id=chat_id, text=f"📘 Ваш материал доступен по ссылке: {LINK}")
+        await bot.send_message(chat_id, f"📘 Ваш материал доступен по ссылке: {LINK}")
     else:
-        await bot.send_message(chat_id=chat_id, text="⚠️ Файл не найден. Пожалуйста, попробуйте позже.")
+        await bot.send_message(chat_id, "⚠️ Файл не найден. Попробуйте позже.")
 
-    asyncio.create_task(send_followup_message(chat_id))
+    asyncio.create_task(send_channel_invite(chat_id))
     await callback.answer()
 
 # =========================================================
-# 3. ПОДПИСКА НА КАНАЛ
+# 3. ПРИГЛАШЕНИЕ НА КАНАЛ
 # =========================================================
-async def send_followup_message(chat_id: int):
+async def send_channel_invite(chat_id: int):
     await asyncio.sleep(10)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -146,200 +147,165 @@ async def send_followup_message(chat_id: int):
         "Подписывайтесь и получайте практические рекомендации 👇🏽"
     )
     try:
-        await bot.send_message(
-            chat_id,
-            text,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True
-        )
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
         update_user(chat_id, step="followup_sent")
-        asyncio.create_task(schedule_next_message(chat_id))
+        asyncio.create_task(send_after_material(chat_id))
     except Exception as e:
-        logger.warning(f"Ошибка при отправке follow-up сообщения: {e}")
+        logger.warning(f"Ошибка при отправке follow-up: {e}")
 
 # =========================================================
-# 4. ПРОВЕРКА ПОДПИСКИ
+# 4. ПОСЛЕ МАТЕРИАЛА — ОПРОС
 # =========================================================
-async def schedule_next_message(chat_id: int):
-    try:
-        # Пытаемся проверить подписку
-        member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
-        is_subscribed = member.status in ["member", "administrator", "creator"]
-        update_user(chat_id, subscribed=1 if is_subscribed else 0)
-    except Exception as e:
-        # Если бот не имеет доступа к каналу — просто продолжаем сценарий
-        logger.warning(f"Не удалось проверить подписку или нет доступа к каналу: {e}")
-        is_subscribed = False
-
-    # Переход к следующему сообщению вне зависимости от результата
+async def send_after_material(chat_id: int):
     await asyncio.sleep(10)
+    await send_avoidance_intro(chat_id)
+
+avoidance_questions = [
+    "Вы часто измеряете давление или пульс?",
+    "Носите с собой бутылку воды?",
+    "Отказались от спорта из-за опасений?",
+    "Стараетесь не оставаться в одиночестве?",
+    "Часто открываете окно, чтобы «стало легче»?",
+    "Предпочитаете садиться поближе к выходу?",
+    "Отвлекаетесь в телефон, чтобы не замечать ощущения?",
+    "Избегаете поездок за город из страха остаться без связи?"
+]
+
+@router.callback_query(F.data == "avoidance_start")
+async def start_avoidance_test(callback: CallbackQuery):
+    chat_id = callback.message.chat.id
+    await callback.answer()
+    update_user(chat_id, step="avoidance_test")
+    await bot.send_message(chat_id, "Опрос: давайте проверим, правильно ли Вы действуете. Ответьте на 8 вопросов.")
+    await send_question(chat_id, 0)
+
+async def send_avoidance_intro(chat_id: int):
+    text = (
+        "Что Вы почувствовали после гайда?\n\n"
+        "Давайте проверим, насколько выражено избегание ситуаций, связанных со страхом.\n"
+        "🧩 Пройдите короткий тест — всего 8 вопросов."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Начать опрос", callback_data="avoidance_start")]])
+    await bot.send_message(chat_id, text, reply_markup=kb)
+
+async def send_question(chat_id: int, index: int):
+    if index >= len(avoidance_questions):
+        await finish_test(chat_id)
+        return
+    q = avoidance_questions[index]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да", callback_data=f"ans_yes_{index}"),
+            InlineKeyboardButton(text="❌ Нет", callback_data=f"ans_no_{index}")
+        ]
+    ])
+    await bot.send_message(chat_id, f"{index+1}/8. {q}", reply_markup=kb)
+
+# =========================================================
+# 5. ОТВЕТЫ
+# =========================================================
+@router.callback_query(F.data.startswith("ans_"))
+async def handle_answer(callback: CallbackQuery):
+    chat_id = callback.message.chat.id
+    _, ans, idx = callback.data.split("_")
+    idx = int(idx)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO answers (user_id, question, answer) VALUES (?, ?, ?)", (chat_id, idx, ans))
+    conn.commit()
+    conn.close()
+    await callback.answer()
+    await send_question(chat_id, idx + 1)
+
+# =========================================================
+# 6. РЕЗУЛЬТАТЫ ОПРОСА (две ветки)
+# =========================================================
+async def finish_test(chat_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT answer FROM answers WHERE user_id=?", (chat_id,))
+    answers = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    yes_count = answers.count("yes")
+    update_user(chat_id, step="avoidance_done")
+
+    if yes_count >= 4:
+        text = (
+            "✅ Тест завершён.\n\n"
+            "У Вас выраженное избегание. Похоже, многие действия направлены на предотвращение страха, "
+            "и это может мешать восстановлению. "
+            "Хорошая новость: избегание можно постепенно ослабить — именно этому я учу своих пациентов."
+        )
+    else:
+        text = (
+            "✅ Тест завершён.\n\n"
+            "Отлично! Вы не позволяете тревоге управлять решениями и уже делаете многое правильно. "
+            "Тем не менее полезно продолжить укреплять уверенность — чтобы страх больше не диктовал границы Вашей жизни."
+        )
+
+    await bot.send_message(chat_id, text)
+    asyncio.create_task(send_case_story(chat_id))
+
+# =========================================================
+# 7. ИСТОРИЯ ПАЦИЕНТА
+# =========================================================
+async def send_case_story(chat_id: int):
+    await asyncio.sleep(10)
+    text = (
+        "История пациента: как страх становится привычкой.\n\n"
+        "Одна моя пациентка несколько лет избегала поездок в метро, опасаясь, что станет плохо. "
+        "Но чем больше она избегала, тем сильнее закреплялся страх. "
+        "Мы начали постепенно возвращать эти ситуации — и паника утратила власть."
+    )
+    await bot.send_message(chat_id, text)
+    update_user(chat_id, step="case_story")
     asyncio.create_task(send_chat_invite(chat_id))
 
 # =========================================================
-# 5. ПРИГЛАШЕНИЕ В ЧАТ
+# 8. ЧАТ (ДЕНЬ 4)
 # =========================================================
 async def send_chat_invite(chat_id: int):
-    try:
-        await bot.send_message(
-            chat_id,
-            "Кстати, у меня есть чат, где можно задать вопросы и обсудить опыт с другими участниками: "
-            "https://t.me/Ocd_and_Anxiety_Chat"
-        )
-        update_user(chat_id, step="chat_invite_sent")
-        asyncio.create_task(send_next_message(chat_id))
-    except Exception as e:
-        logger.warning(f"Ошибка при отправке приглашения в чат: {e}")
-
-# =========================================================
-# 6. ВОРОНКА
-# =========================================================
-SCENARIO_ORDER = [
-    "start", "got_material", "followup_sent", "chat_invite_sent",
-    "avoidance_offer", "avoidance_done", "case_story", "self_disclosure", "consultation_offer"
-]
-SCENARIO_FLOW = {
-    "chat_invite_sent": "avoidance_offer",
-    "avoidance_offer": "case_story",
-    "case_story": "self_disclosure",
-    "self_disclosure": "consultation_offer"
-}
-
-def get_user_step(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT step FROM users WHERE user_id=?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else "start"
-
-def update_user_step(user_id: int, step: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET step=?, last_action=? WHERE user_id=?", (step, datetime.now(), user_id))
-    conn.commit()
-    conn.close()
-
-# =========================================================
-# 7. ПЕРЕХОДЫ
-# =========================================================
-async def send_next_message(chat_id: int):
-    current_step = get_user_step(chat_id)
-    next_step = SCENARIO_FLOW.get(current_step)
-    if next_step == "avoidance_offer":
-        asyncio.create_task(send_avoidance_offer(chat_id))
-    elif next_step == "case_story":
-        asyncio.create_task(send_case_story(chat_id))
-    elif next_step == "self_disclosure":
-        asyncio.create_task(send_self_disclosure(chat_id))
-    elif next_step == "consultation_offer":
-        asyncio.create_task(send_consultation_offer(chat_id))
-
-# =========================================================
-# 8. ПРЕДЛОЖЕНИЕ ПРОЙТИ ТЕСТ
-# =========================================================
-async def send_avoidance_offer(chat_id: int):
     await asyncio.sleep(10)
     text = (
-        "Многие замечают, что после прочтения гайда тревога немного ослабевает. "
-        "Но чтобы понять, как сильно паника влияет на жизнь, можно пройти короткий опрос. "
-        "Он покажет, насколько выражено избегание ситуаций, вызывающих страх.\n\n"
-        "🧩 Готовы пройти тест?"
-    )
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Пройти опрос", callback_data="avoidance_test")]]
-    )
-    await bot.send_message(chat_id, text, reply_markup=kb)
-    update_user_step(chat_id, "avoidance_offer")
-
-# =========================================================
-# 9. ОБРАБОТКА ОПРОСА (исправленный)
-# =========================================================
-@router.callback_query(F.data == "avoidance_test")
-async def handle_avoidance_test(callback: CallbackQuery):
-    chat_id = callback.message.chat.id
-    current_step = get_user_step(chat_id)
-    current_index = SCENARIO_ORDER.index(current_step)
-    test_index = SCENARIO_ORDER.index("avoidance_offer")
-
-    # Ответ пользователю сразу
-    if test_index <= current_index:
-        await callback.message.answer("Отлично 👍 Тест пройден. Даже если немного с опозданием — это шаг вперёд.")
-    else:
-        await callback.message.answer("Отлично 👍 Тест пройден. Это поможет Вам лучше понять Вашу тревогу.")
-
-    # Зафиксировать шаг до ответа Telegram
-    update_user_step(chat_id, "avoidance_done")
-
-    # Завершить callback, чтобы Telegram не зависал
-    await callback.answer()
-
-    # Запустить следующее сообщение уже вне контекста callback
-    # (это гарантирует, что задача не будет убита)
-    asyncio.create_task(trigger_after_test(chat_id, current_step))
-
-
-async def trigger_after_test(chat_id: int, previous_step: str):
-    """Переход после теста, с безопасным запуском следующего этапа."""
-    await asyncio.sleep(10)
-    # Проверяем: если пользователь ещё не дошёл до истории пациента — запускаем её
-    step_now = get_user_step(chat_id)
-    if step_now in ("avoidance_offer", "avoidance_done"):
-        await send_case_story(chat_id)
-# =========================================================
-# 10. ИСТОРИЯ ПАЦИЕНТА
-# =========================================================
-async def send_case_story(chat_id: int):
-    text = (
-        "Недавно у меня был пациент, который пытался победить панические атаки дыхательными упражнениями "
-        "и постоянным измерением давления. Он был уверен, что помогает себе, "
-        "а на деле только закреплял тревогу.\n\n"
-        "После нескольких встреч он понял, что дело не в теле, а в том, "
-        "как он реагирует на ощущения.\n\n"
-        "Паника — не враг, а искажённая тревожная система, с которой можно подружиться."
+        "В таких историях часто помогает общение с теми, кто уже идёт по этому пути. "
+        "У меня есть чат, где можно задать вопросы и обсудить опыт с другими участниками: "
+        "https://t.me/Ocd_and_Anxiety_Chat"
     )
     await bot.send_message(chat_id, text)
-    update_user_step(chat_id, "case_story")
-    asyncio.create_task(delayed_self_disclosure(chat_id))
-
-async def delayed_self_disclosure(chat_id: int):
-    await asyncio.sleep(10)
-    await send_self_disclosure(chat_id)
+    update_user(chat_id, step="chat_invite_sent")
+    asyncio.create_task(send_self_disclosure(chat_id))
 
 # =========================================================
-# 11. САМОРАСКРЫТИЕ
+# 9. САМОРАСКРЫТИЕ (ДЕНЬ 6)
 # =========================================================
 async def send_self_disclosure(chat_id: int):
+    await asyncio.sleep(10)
     text = (
-        "Иногда мне самому бывает полезно обсудить сложные случаи с коллегами. "
-        "С живыми специалистами, а не с книгами или искусственным интеллектом. "
-        "Потому что только личный контакт помогает увидеть то, что не видно со стороны.\n\n"
-        "Именно так я строю и свои консультации — без шаблонов, только живая работа и понимание."
+        "Иногда и мне важно обсуждать сложные случаи с коллегами. "
+        "Живое общение даёт больше, чем книги или технологии. "
+        "Так я строю свои консультации — живое присутствие и понимание без шаблонов."
     )
     await bot.send_message(chat_id, text)
-    update_user_step(chat_id, "self_disclosure")
-    asyncio.create_task(delayed_consultation_offer(chat_id))
-
-async def delayed_consultation_offer(chat_id: int):
-    await asyncio.sleep(10)
-    await send_consultation_offer(chat_id)
+    update_user(chat_id, step="self_disclosure")
+    asyncio.create_task(send_consultation_offer(chat_id))
 
 # =========================================================
-# 12. КОНСУЛЬТАЦИЯ
+# 10. КОНСУЛЬТАЦИЯ (ДЕНЬ 8)
 # =========================================================
 async def send_consultation_offer(chat_id: int):
+    await asyncio.sleep(10)
     text = (
-        "Если чувствуете, что готовы разобраться глубже и перейти от понимания к изменениям, "
-        "я открыт для личных консультаций. "
-        "Мы детально разбираем причины паники, устраняем избегание и возвращаем уверенность в теле.\n\n"
-        "🕊 Записаться на консультацию можно по ссылке:\n"
-        "https://t.me/OcdAndAnxiety"
+        "Если хотите пойти глубже — обсудим не только панические атаки, "
+        "но и темы сна и обсессивных мыслей. "
+        "🕊 Я провожу индивидуальные консультации, где мы работаем с корнями страха.\n\n"
+        "Записаться можно здесь: https://лечение-паники.рф"
     )
     await bot.send_message(chat_id, text)
-    update_user_step(chat_id, "consultation_offer")
+    update_user(chat_id, step="consultation_offer")
 
 # =========================================================
-# 13. ЗАПУСК
+# 11. ЗАПУСК
 # =========================================================
 async def main():
     logger.info("Бот запущен.")
