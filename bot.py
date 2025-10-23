@@ -138,7 +138,7 @@ async def send_material(callback: CallbackQuery):
         try:
             await bot.send_chat_action(chat_id, "upload_video_note")
             await bot.send_video_note(chat_id, VIDEO_NOTE_FILE_ID)
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
         except Exception as e:
             logger.warning(f"Не удалось отправить кружок: {e}")
 
@@ -154,22 +154,21 @@ async def send_material(callback: CallbackQuery):
     await callback.answer()
 
 # =========================================================
-# 3. ПРОВЕРКА ПОДПИСКИ И ПРИГЛАШЕНИЕ НА КАНАЛ
+# 3. ПРОВЕРКА ПОДПИСКИ
 # =========================================================
 async def check_subscription_and_invite(chat_id: int):
-    """Проверяет подписку и при необходимости отправляет приглашение на канал."""
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
+    is_subscribed = False
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
-        status = member.status
-        is_subscribed = status in ["member", "administrator", "creator"]
+        is_subscribed = member.status in ["member", "administrator", "creator"]
         update_user(chat_id, subscribed=1 if is_subscribed else 0)
         log_event(chat_id, "subscription_checked", f"Подписан: {is_subscribed}")
-    except TelegramBadRequest:
-        is_subscribed = False
-        update_user(chat_id, subscribed=0)
-        log_event(chat_id, "subscription_checked", "Ошибка при проверке подписки")
+    except Exception as e:
+        logger.warning(f"Ошибка проверки подписки: {e}")
+        log_event(chat_id, "subscription_checked", "Ошибка проверки, пропущено")
 
+    # если уже подписан — пропускаем приглашение
     if not is_subscribed:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -189,10 +188,10 @@ async def check_subscription_and_invite(chat_id: int):
     asyncio.create_task(send_after_material(chat_id))
 
 # =========================================================
-# 4. ОПРОС ПО ИЗБЕГАНИЮ
+# 4. ОПРОС
 # =========================================================
 async def send_after_material(chat_id: int):
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
     await send_avoidance_intro(chat_id)
 
 avoidance_questions = [
@@ -280,10 +279,10 @@ async def finish_test(chat_id: int):
     asyncio.create_task(send_case_story(chat_id))
 
 # =========================================================
-# 5. ИСТОРИЯ ПАЦИЕНТА, ЧАТ, КОНСУЛЬТАЦИЯ
+# 5. ДАЛЬНЕЙШИЕ ЭТАПЫ
 # =========================================================
 async def send_case_story(chat_id: int):
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
     text = (
         "История пациента: как страх становится привычкой.\n\n"
         "Одна моя пациентка несколько лет избегала поездок в метро, опасаясь, что станет плохо. "
@@ -296,7 +295,7 @@ async def send_case_story(chat_id: int):
     asyncio.create_task(send_chat_invite(chat_id))
 
 async def send_chat_invite(chat_id: int):
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
     text = (
         "В таких историях часто помогает общение с теми, кто уже идёт по этому пути. "
         "У меня есть чат, где можно задать вопросы и обсудить опыт с другими участниками: "
@@ -308,7 +307,7 @@ async def send_chat_invite(chat_id: int):
     asyncio.create_task(send_self_disclosure(chat_id))
 
 async def send_self_disclosure(chat_id: int):
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
     text = (
         "Иногда и мне важно обсуждать сложные случаи с коллегами. "
         "Живое общение даёт больше, чем книги или технологии. "
@@ -320,7 +319,7 @@ async def send_self_disclosure(chat_id: int):
     asyncio.create_task(send_consultation_offer(chat_id))
 
 async def send_consultation_offer(chat_id: int):
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
     text = (
         "Если хотите пойти глубже — обсудим не только панические атаки, "
         "но и темы сна и обсессивных мыслей. "
