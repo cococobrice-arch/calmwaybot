@@ -249,16 +249,15 @@ avoidance_questions = [
     "Отказались от спорта из-за опасений?",
     "Стараетесь не оставаться в одиночестве?",
     "Часто открываете окно, чтобы «стало легче»?",
-    "Предпочитаете садиться поближе к выходу?",
-    "Отвлекаетесь в телефон, чтобы не замечать ощущения?",
-    "Избегаете поездок за город из страха остаться без связи?"
+    "В общественные местах предпочитаете садиться поближе к выходу?",
+    "Отвлекаетесь в телефон, чтобы не замечать неприятные телесные ощущения?",
+    "Избегаете поездок за город, чтобы не оставаться без мобильной связи и интернета?"
 ]
 
 async def send_avoidance_intro(chat_id: int):
     text = (
-        "Что Вы почувствовали после гайда?\n\n"
-        "Давайте проверим, насколько выражено избегание ситуаций, связанных со страхом.\n"
-        "🧩 Пройдите короткий тест — всего 8 вопросов."
+        "Давайте проверим, насколько правильно Вы действуете в ситуациях, связанных со страхом?\n"
+        "🧩 Пройдите короткий тест — всего 8 вопросов с ответами Да/Нет."
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Начать опрос", callback_data="avoidance_start")]]
@@ -272,7 +271,7 @@ async def start_avoidance_test(callback: CallbackQuery):
     await callback.answer()
     upsert_user(chat_id, step="avoidance_test")
     log_event(chat_id, "user_clicked_avoidance_start", "Начал опрос избегания")
-    await bot.send_message(chat_id, "Опрос: давайте проверим, правильно ли Вы действуете. Ответьте на 8 вопросов.")
+    await bot.send_message(chat_id, "Итак, начнём:")
     await send_question(chat_id, 0)
 
 async def send_question(chat_id: int, index: int):
@@ -282,8 +281,8 @@ async def send_question(chat_id: int, index: int):
     q = avoidance_questions[index]
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Да", callback_data=f"ans_yes_{index}"),
-            InlineKeyboardButton(text="❌ Нет", callback_data=f"ans_no_{index}")
+            InlineKeyboardButton(text="Да", callback_data=f"ans_yes_{index}"),
+            InlineKeyboardButton(text="Нет", callback_data=f"ans_no_{index}")
         ]
     ])
     await bot.send_message(chat_id, f"{index+1}/8. {q}", reply_markup=kb)
@@ -316,10 +315,20 @@ async def finish_test(chat_id: int):
     if yes_count >= 4:
         text = (
             "✅ Тест завершён.\n\n"
-            "У Вас выраженное избегание. Похоже, многие действия направлены на предотвращение страха, "
-            "и это может мешать восстановлению. "
-            "Хорошая новость: избегание можно постепенно ослабить — именно этому я учу своих пациентов."
-        )
+            "Судя по Вашим ответам, Вам приходится довольно сильно подстраивать свою жизнь под избегание возможных повторных приступов паники."
+            "Это ловушка, в которую попадаются очень многие люди. Чем больше вынужденных ограничений мы накладываем на свою жизнь <tg-emoji emoji-id='5330264365222349690'></tg-emoji> тем большую важность мы придаем панике"
+            "<tg-emoji emoji-id='5330264365222349690'></tg-emoji> Тем больше концентрируемся на своём теле <tg-emoji emoji-id='5330264365222349690'></tg-emoji> Тем больше чувствуем в нём разные неожиданные/неприятные ощущения <tg-emoji emoji-id='5330264365222349690'></tg-emoji> Тем больше переживаем по поводу них.\n\n"
+            "И так до бесконечности 🔄\n\n"
+            "<tg-emoji emoji-id='5355014749920709843'></tg-emoji> Хорошая новость в том, что мы в силах менять стратегию своих действий - и тем самым разрывать этот порочный круг.\n"
+            "Вы уже почитали в моём гайде о том, как правильно отвечать себе на пугающие мысли. Поэтому теперь, держа под рукой эту памятку, Вы можете попробовать немного зайти за грань того, в чём ограничивает Вас тревога.\n\n"
+            "Я предлагаю следующее. Возьмите один из пунктов, на который Вы ответили "Да", и начните делать его наоборот.\n"
+            "Привыкли всегда носить с собой бутылку воды? Оставляйте её дома!\n"
+            "Держите окно приоткрытым? Постарайтесь подольше побыть в небольшом дефиците кислорода. И т.п.\n\n"
+            "Но не всё сразу! Возьмите для изменения сначала только одно правило.\n"
+            "Это будет дискомфортно, но я обещаю: это даст Вам больше уверенности в Вашей способности справляться со страхом 🦁\n\n"
+            "Попробуете?"
+        )   
+
     else:
         text = (
             "✅ Тест завершён.\n\n"
@@ -327,7 +336,7 @@ async def finish_test(chat_id: int):
             "Тем не менее полезно продолжить укреплять уверенность — чтобы страх больше не диктовал границы Вашей жизни."
         )
 
-    await bot.send_message(chat_id, text)
+    await bot.send_message(chat_id, text, parse_mode="HTML")
     asyncio.create_task(send_case_story(chat_id))
 
 # =========================================================
@@ -349,14 +358,26 @@ async def send_case_story(chat_id: int):
 async def send_chat_invite(chat_id: int):
     await asyncio.sleep(5)
     text = (
-        "В таких историях часто помогает общение с теми, кто уже идёт по этому пути. "
-        "У меня есть чат, где можно задать вопросы и обсудить опыт с другими участниками: "
-        "https://t.me/Ocd_and_Anxiety_Chat"
+        "Когда речь идёт о взаимодействии со сложными эмоциями, часто помогает общение с теми, кто тоже идёт по этому пути.\n\n"
+        "У меня есть открытый чат, где можно задать вопросы мне, а также обсудить свой опыт с другими участниками."
     )
-    await bot.send_message(chat_id, text)
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💬 Вступить <tg-emoji emoji-id='5226546505661306261'></tg-emoji>",
+                    url="https://t.me/Ocd_and_Anxiety_Chat"
+                )
+            ]
+        ]
+    )
+
+    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="HTML")
     upsert_user(chat_id, step="chat_invite_sent")
-    log_event(chat_id, "bot_chat_invite_sent", "Приглашение в чат отправлено")
+    log_event(chat_id, "bot_chat_invite_sent", "Отправлено приглашение в чат с кнопкой и кастомным эмодзи")
     asyncio.create_task(send_self_disclosure(chat_id))
+
 
 async def send_self_disclosure(chat_id: int):
     await asyncio.sleep(5)
