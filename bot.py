@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # -------------------- Переменные окружения --------------------
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-LINK = os.getenv("LINK_TO_MATERIAL")
+LINK = os.getenv("LINK_TO_MATERIAL")  # ссылка или локальный путь
 VIDEO_NOTE_FILE_ID = os.getenv("VIDEO_NOTE_FILE_ID")
 DB_PATH = os.getenv("DATABASE_PATH", "users.db")
 CHANNEL_USERNAME = "@OcdAndAnxiety"
@@ -68,13 +68,12 @@ def init_db():
             details TEXT
         )
     """)
-    conn.commit()
     # Добавим колонку username в users, если её нет
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
-        conn.commit()
     except sqlite3.OperationalError:
         pass
+    conn.commit()
     conn.close()
 
 def log_event(user_id: int, action: str, details: str = None):
@@ -170,6 +169,7 @@ async def send_material(callback: CallbackQuery):
     upsert_user(chat_id, step="got_material", username=uname or None)
     log_event(chat_id, "user_clicked_get_material", "Нажал «Получить гайд»")
 
+    # Кружок
     if VIDEO_NOTE_FILE_ID:
         try:
             await bot.send_chat_action(chat_id, "upload_video_note")
@@ -178,33 +178,43 @@ async def send_material(callback: CallbackQuery):
         except Exception as e:
             logger.warning(f"Не удалось отправить кружок: {e}")
 
+    # Материал
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
-        await bot.send_document(chat_id, document=file, caption="Первый шаг сделан 💪")
+        await bot.send_document(chat_id, document=file, caption="Первый шаг к спокойствию сделан 💪")
     elif LINK and LINK.startswith("http"):
         await bot.send_message(chat_id, f"📘 Ваш материал доступен по ссылке: {LINK}")
     else:
         await bot.send_message(chat_id, "⚠️ Файл не найден. Попробуйте позже.")
 
-    asyncio.create_task(check_subscription_and_invite(chat_id))
+    # Дальнейшая логика — проверка подписки и продолжение сценария
+    asyncio.create_task(check_subscription_and_continue(chat_id))
     await callback.answer()
 
 # =========================================================
-# 3. ПРОВЕРКА ПОДПИСКИ (если подписан — не шлём приглашение)
+# 3. ПРОВЕРКА ПОДПИСКИ И КОРРЕКТНОЕ ПРОДОЛЖЕНИЕ
 # =========================================================
-async def check_subscription_and_invite(chat_id: int):
+async def check_subscription_and_continue(chat_id: int):
+    """Проверяем подписку. Если подписан — пропускаем приглашение на канал и идём дальше.
+       Если не подписан — предлагаем подписаться и всё равно идём дальше. При ошибках — продолжаем сценарий, не зависаем."""
     await asyncio.sleep(5)
     is_subscribed = False
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, chat_id)
-        is_subscribed = member.status in ["member", "administrator", "creator"]
+        status = getattr(member, "status", None)
+        is_subscribed = status in {"member", "administrator", "creator"}
         upsert_user(chat_id, subscribed=1 if is_subscribed else 0)
         log_event(chat_id, "bot_subscription_checked", f"Подписан: {is_subscribed}")
+    except TelegramBadRequest as e:
+        # Даже если не смогли проверить — продолжаем сценарий
+        logger.warning(f"Не удалось проверить подписку: {e}")
+        log_event(chat_id, "bot_subscription_checked", "Ошибка проверки (TelegramBadRequest)")
     except Exception as e:
-        logger.warning(f"Ошибка проверки подписки: {e}")
-        log_event(chat_id, "bot_subscription_checked", "Ошибка проверки")
+        logger.warning(f"Сбой проверки подписки: {e}")
+        log_event(chat_id, "bot_subscription_checked", "Ошибка проверки (Exception)")
 
     if not is_subscribed:
+        # Отправляем приглашение подписаться
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="Подписаться на канал", url="https://t.me/OcdAndAnxiety")]
@@ -217,9 +227,13 @@ async def check_subscription_and_invite(chat_id: int):
             'Например, я <a href="https://t.me/OcdAndAnxiety/16">писал пост</a> о том, как неправильное дыхание усиливает паническую атаку.\n\n'
             "Подписывайтесь и получайте практические рекомендации 👇🏽"
         )
-        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
-        log_event(chat_id, "bot_channel_invite_sent", "Отправлено приглашение подписаться на канал")
+        try:
+            await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
+            log_event(chat_id, "bot_channel_invite_sent", "Отправлено приглашение подписаться на канал")
+        except Exception as e:
+            logger.warning(f"Ошибка отправки приглашения на канал: {e}")
 
+    # В любом случае через 5 секунд продолжаем сценарий
     asyncio.create_task(send_after_material(chat_id))
 
 # =========================================================
@@ -240,15 +254,6 @@ avoidance_questions = [
     "Избегаете поездок за город из страха остаться без связи?"
 ]
 
-@router.callback_query(F.data == "avoidance_start")
-async def start_avoidance_test(callback: CallbackQuery):
-    chat_id = callback.message.chat.id
-    await callback.answer()
-    upsert_user(chat_id, step="avoidance_test")
-    log_event(chat_id, "user_clicked_avoidance_start", "Начал опрос избегания")
-    await bot.send_message(chat_id, "Опрос: давайте проверим, правильно ли Вы действуете. Ответьте на 8 вопросов.")
-    await send_question(chat_id, 0)
-
 async def send_avoidance_intro(chat_id: int):
     text = (
         "Что Вы почувствовали после гайда?\n\n"
@@ -259,6 +264,16 @@ async def send_avoidance_intro(chat_id: int):
         inline_keyboard=[[InlineKeyboardButton(text="Начать опрос", callback_data="avoidance_start")]]
     )
     await bot.send_message(chat_id, text, reply_markup=kb)
+    log_event(chat_id, "bot_avoidance_invite_sent", "Предложен опрос избегания")
+
+@router.callback_query(F.data == "avoidance_start")
+async def start_avoidance_test(callback: CallbackQuery):
+    chat_id = callback.message.chat.id
+    await callback.answer()
+    upsert_user(chat_id, step="avoidance_test")
+    log_event(chat_id, "user_clicked_avoidance_start", "Начал опрос избегания")
+    await bot.send_message(chat_id, "Опрос: давайте проверим, правильно ли Вы действуете. Ответьте на 8 вопросов.")
+    await send_question(chat_id, 0)
 
 async def send_question(chat_id: int, index: int):
     if index >= len(avoidance_questions):
