@@ -366,17 +366,18 @@ async def send_chat_invite(chat_id: int):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💬 Вступить <tg-emoji emoji-id='5226546505661306261'></tg-emoji>",
+                    text="💬 Вступить ❤️",
                     url="https://t.me/Ocd_and_Anxiety_Chat"
                 )
             ]
         ]
     )
 
-    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="HTML")
+    await bot.send_message(chat_id, text, reply_markup=keyboard)
     upsert_user(chat_id, step="chat_invite_sent")
-    log_event(chat_id, "bot_chat_invite_sent", "Отправлено приглашение в чат с кнопкой и кастомным эмодзи")
+    log_event(chat_id, "bot_chat_invite_sent", "Отправлено приглашение в чат с кнопкой ❤️")
     asyncio.create_task(send_self_disclosure(chat_id))
+
 
 
 async def send_self_disclosure(chat_id: int):
