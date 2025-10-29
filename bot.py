@@ -307,43 +307,36 @@ async def handle_answer(callback: CallbackQuery):
     await callback.answer()
     await send_question(chat_id, idx + 1)
 
-async def finish_test(chat_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT answer FROM answers WHERE user_id=?", (chat_id,))
-    answers = [row[0] for row in cursor.fetchall()]
-    conn.close()
+@router.callback_query(F.data == "avoidance_ok")
+async def handle_avoidance_ok(callback: CallbackQuery):
+    await callback.answer()
+    await bot.send_message(callback.message.chat.id, "Супер! У Вас всё получится! 💪🏼")
+    log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Хорошо 😌")
+    asyncio.create_task(send_case_story(callback.message.chat.id))
 
-    yes_count = answers.count("yes")
-    upsert_user(chat_id, step="avoidance_done")
-    log_event(chat_id, "user_finished_test", f"Ответов 'ДА': {yes_count}")
 
-    if yes_count >= 4:
-        text = (
-            "✅ Тест завершён.\n\n"
-            "Судя по Вашим ответам, Вам приходится довольно сильно подстраивать свою жизнь под <b><i>избегание</i></b> возможных повторных приступов паники. "
-            "Это ловушка, в которую попадаются очень многие люди. Чем больше вынужденных ограничений мы накладываем на свою жизнь ➡️ тем большую важность мы придаем панике\n"
-            "⬇️\n Тем больше концентрируемся на своём теле\n ⬇️ \nТем больше чувствуем в нём разные неожиданные/неприятные ощущения\n ⬇️ \nТем больше переживаем по поводу них.\n\n"
-            "И так до бесконечности 🔄\n\n"
-            "☀️ Хорошая новость в том, что мы в силах менять стратегию своих действий - и тем самым разрывать этот порочный круг.\n\n"
-            "Вы уже почитали в моём гайде о том, как правильно отвечать себе на пугающие <u>мысли</u>. Поэтому теперь, держа под рукой эту памятку, Вы можете и в своих <u>действиях</u> попробовать немного зайти за грань того, в чём ограничивает Вас тревога.\n\n"
-            "Я предлагаю следующее. \n\nВозьмите один из пунктов, на который Вы ответили \"Да\", и начните делать его наоборот.\n\n"
-            "Привыкли всегда носить с собой бутылку воды? 👉🏼 Оставьте её дома!\n"
-            "Держите окно приоткрытым? 👉🏼 Постарайтесь подольше побыть в небольшом дефиците кислорода.\n И т.п.\n\n"
-            "Но не всё сразу! Возьмите для изменения сначала только одно правило и поработайте пару недель над отказом от него.\n\n"
-            "Это будет дискомфортно, но я обещаю: это даст Вам больше уверенности в Вашей способности справляться со страхом 🦁\n\n"
-            "Попробуете?"
-        )   
+@router.callback_query(F.data == "avoidance_scared")
+async def handle_avoidance_scared(callback: CallbackQuery):
+    await callback.answer()
+    await bot.send_message(callback.message.chat.id, "Ничего, иногда нужно собраться с силами, чтобы решиться на то, что тревожно 🫶🏼")
+    log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
+    asyncio.create_task(send_case_story(callback.message.chat.id))
 
-    else:
-        text = (
-            "✅ Тест завершён.\n\n"
-            "Отлично! Вы не позволяете тревоге управлять решениями и уже делаете многое правильно. "
-            "Тем не менее полезно продолжить укреплять уверенность — чтобы страх больше не диктовал границы Вашей жизни."
-        )
+    
+    @router.callback_query(F.data == "avoidance_ok")
+async def handle_avoidance_ok(callback: CallbackQuery):
+    await callback.answer()
+    await bot.send_message(callback.message.chat.id, "Супер! У Вас всё получится! 💪🏼")
+    log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Хорошо 😌")
+    asyncio.create_task(send_case_story(callback.message.chat.id))
 
-    await bot.send_message(chat_id, text, parse_mode="HTML")
-    asyncio.create_task(send_case_story(chat_id))
+
+@router.callback_query(F.data == "avoidance_scared")
+async def handle_avoidance_scared(callback: CallbackQuery):
+    await callback.answer()
+    await bot.send_message(callback.message.chat.id, "Ничего, иногда нужно собраться с силами, чтобы решиться на то, что тревожно 🫶🏼")
+    log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
+    asyncio.create_task(send_case_story(callback.message.chat.id))
 
 # =========================================================
 # 5. ДАЛЬНЕЙШИЕ ЭТАПЫ
