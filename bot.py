@@ -299,6 +299,10 @@ async def handle_answer(callback: CallbackQuery):
     _, ans, idx = callback.data.split("_")
     idx = int(idx)
 
+    # ✅ 1. Сразу подтверждаем нажатие, чтобы Telegram разблокировал кнопку
+    await callback.answer()
+
+    # ✅ 2. Сохраняем ответ
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -309,13 +313,13 @@ async def handle_answer(callback: CallbackQuery):
     conn.close()
     log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
 
-    # отправляем следующий вопрос
+    # ✅ 3. После подтверждения — логика перехода
     if idx + 1 < len(avoidance_questions):
         await send_question(chat_id, idx + 1)
     else:
+        # Делаем маленькую паузу, чтобы Telegram обработал callback полностью
+        await asyncio.sleep(0.3)
         await finish_test(chat_id)
-
-    await callback.answer()
 
 
 
