@@ -43,6 +43,11 @@ TEST_USER_IDS = {458421198, 7181765102}
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+
+    # ✅ Включаем WAL-режим (чтобы не было блокировок при одновременном чтении/записи)
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -68,13 +73,14 @@ def init_db():
             details TEXT
         )
     """)
-    # Добавим колонку username в users, если её нет
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
     except sqlite3.OperationalError:
         pass
+
     conn.commit()
     conn.close()
+
 
 def log_event(user_id: int, action: str, details: str = None):
     conn = sqlite3.connect(DB_PATH)
@@ -330,10 +336,14 @@ async def handle_answer(callback: CallbackQuery):
         await asyncio.sleep(0.2)
 
         # Следующий шаг
-        if idx + 1 < len(avoidance_questions):
-            await send_question(chat_id, idx + 1)
-        else:
-            await finish_test(chat_id)
+       if idx + 1 < len(avoidance_questions):
+    await send_question(chat_id, idx + 1)
+else:
+    await asyncio.sleep(0.2)  # 🕐 дать SQLite дописать ответ
+    await finish_test(chat_id)
+
+       
+
 
     except Exception as e:
         import traceback
