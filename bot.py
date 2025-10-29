@@ -298,14 +298,26 @@ async def handle_answer(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     _, ans, idx = callback.data.split("_")
     idx = int(idx)
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO answers (user_id, question, answer) VALUES (?, ?, ?)", (chat_id, idx, ans))
+    cursor.execute(
+        "INSERT INTO answers (user_id, question, answer) VALUES (?, ?, ?)",
+        (chat_id, idx, ans)
+    )
     conn.commit()
     conn.close()
-    log_event(chat_id, "user_answer", f"Вопрос {idx+1}: {ans.upper()}")
+    log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
+
+    # 👉 Сначала отправляем следующий вопрос
+    if idx + 1 < len(avoidance_questions):
+        await send_question(chat_id, idx + 1)
+    else:
+        await finish_test(chat_id)
+
+    # 👉 Только после этого отвечаем Telegram, чтобы кнопка не зависала
     await callback.answer()
-    await send_question(chat_id, idx + 1)
+
 
 @router.callback_query(F.data == "avoidance_ok")
 async def handle_avoidance_ok(callback: CallbackQuery):
