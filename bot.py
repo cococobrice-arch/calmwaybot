@@ -44,7 +44,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # WAL-режим для снижения блокировок
+    # WAL-режим для избежания блокировок при одновременных чтениях/записях
     cursor.execute("PRAGMA journal_mode=WAL;")
     cursor.execute("PRAGMA synchronous=NORMAL;")
 
@@ -54,22 +54,18 @@ def init_db():
             source TEXT,
             step TEXT,
             subscribed INTEGER DEFAULT 0,
-            last_action TEXT
+            last_action TEXT,
+            username TEXT
         )
     """)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS answers (
             user_id INTEGER,
             question INTEGER,
-            answer TEXT
+            answer TEXT,
+            PRIMARY KEY (user_id, question)
         )
     """)
-    # Уникальность пары (user_id, question), чтобы один вопрос имел один актуальный ответ
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS ux_answers_user_question
-        ON answers(user_id, question)
-    """)
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,59 +75,41 @@ def init_db():
             details TEXT
         )
     """)
-    # Добавляем username в users при первом запуске старой БД
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
-    except sqlite3.OperationalError:
-        pass
-
     conn.commit()
     conn.close()
 
 
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec='seconds')
-
-
 def log_event(user_id: int, action: str, details: str = None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO events (user_id, timestamp, action, details) VALUES (?, ?, ?, ?)",
-        (user_id, _now_iso(), action, details)
+        (user_id, datetime.now().isoformat(timespec='seconds'), action, details)
     )
     conn.commit()
     conn.close()
 
 
 def upsert_user(user_id: int, step: str = None, subscribed: int = None, username: str = None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     exists = cursor.fetchone()
 
-    now = _now_iso()
+    now = datetime.now().isoformat(timespec='seconds')
     if exists:
         if step is not None and username is not None:
-            cursor.execute(
-                "UPDATE users SET step=?, username=?, last_action=? WHERE user_id=?",
-                (step, username, now, user_id)
-            )
+            cursor.execute("UPDATE users SET step=?, username=?, last_action=? WHERE user_id=?",
+                           (step, username, now, user_id))
         elif step is not None:
-            cursor.execute(
-                "UPDATE users SET step=?, last_action=? WHERE user_id=?",
-                (step, now, user_id)
-            )
+            cursor.execute("UPDATE users SET step=?, last_action=? WHERE user_id=?",
+                           (step, now, user_id))
         if subscribed is not None:
-            cursor.execute(
-                "UPDATE users SET subscribed=?, last_action=? WHERE user_id=?",
-                (subscribed, now, user_id)
-            )
+            cursor.execute("UPDATE users SET subscribed=?, last_action=? WHERE user_id=?",
+                           (subscribed, now, user_id))
         if username is not None and step is None:
-            cursor.execute(
-                "UPDATE users SET username=?, last_action=? WHERE user_id=?",
-                (username, now, user_id)
-            )
+            cursor.execute("UPDATE users SET username=?, last_action=? WHERE user_id=?",
+                           (username, now, user_id))
     else:
         cursor.execute(
             "INSERT INTO users (user_id, source, step, subscribed, last_action, username) VALUES (?, ?, ?, ?, ?, ?)",
@@ -143,7 +121,7 @@ def upsert_user(user_id: int, step: str = None, subscribed: int = None, username
 
 def purge_user(user_id: int):
     """Полная очистка данных пользователя (для тестовых аккаунтов): users, answers, events."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM events WHERE user_id=?", (user_id,))
     cursor.execute("DELETE FROM answers WHERE user_id=?", (user_id,))
@@ -179,10 +157,10 @@ async def cmd_start(message: Message):
 Знакомо? 
 
 Вероятно, Вы уже знаете, что такие наплывы страха называются <b>паническими атаками</b>. 
-Эти состояния имеют чёткую внутреннюю закономерность - и когда Вы поймёте её, Вы сможете взять происходящее под контроль.
+Эти состояния имеют чёткую внутреннюю закономерность — и когда Вы поймёте её, Вы сможете взять происходящее под контроль.
 
 🖊 Я приготовил материал, который поможет Вам разобраться, что запускает панические атаки, чем они поддерживаются и как перестать им подчиняться.  
-Скачайте его - и дайте отпор страху! 💡""",
+Скачайте его — и дайте отпор страху! 💡""",
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -234,7 +212,7 @@ async def check_subscription_and_continue(chat_id: int):
         upsert_user(chat_id, subscribed=1 if is_subscribed else 0)
         log_event(chat_id, "bot_subscription_checked", f"Подписан: {is_subscribed}")
     except TelegramBadRequest as e:
-        # Telegram может не дать проверить подписку в публичных каналах — считаем, что подписан
+        # Часто на публичных каналах get_chat_member кидает ошибку — продолжаем сценарий, считаем подписанным
         logger.warning(f"Не удалось проверить подписку: {e} (считаем подписанным)")
         is_subscribed = True
         log_event(chat_id, "bot_subscription_checked", "Ошибка проверки, принудительно считаем подписанным")
@@ -243,7 +221,6 @@ async def check_subscription_and_continue(chat_id: int):
         log_event(chat_id, "bot_subscription_checked", "Ошибка проверки (Exception)")
 
     if not is_subscribed:
-        # Отправляем приглашение подписаться
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="Подписаться на канал", url="https://t.me/OcdAndAnxiety")]
@@ -252,7 +229,7 @@ async def check_subscription_and_continue(chat_id: int):
         text = (
             "У меня есть телеграм-канал, где я делюсь нюансами о преодолении тревоги "
             "и развеиваю мифы о <i>не</i>работающих методах. "
-            "Никакой воды - только проверенные решения. 💧❌\n\n"
+            "Никакой воды — только проверенные решения. 💧❌\n\n"
             'Например, я <a href="https://t.me/OcdAndAnxiety/16">писал пост</a> о том, как неправильное дыхание усиливает паническую атаку.\n\n'
             "Подписывайтесь и получайте практические рекомендации 👇🏽"
         )
@@ -265,7 +242,7 @@ async def check_subscription_and_continue(chat_id: int):
         except Exception as e:
             logger.warning(f"Ошибка отправки приглашения на канал: {e}")
 
-    # Всегда продолжаем сценарий — независимо от результата проверки
+    # Всегда продолжаем сценарий
     asyncio.create_task(send_after_material(chat_id))
 
 # =========================================================
@@ -281,7 +258,7 @@ avoidance_questions = [
     "Отказались от спорта или физических нагрузок из-за опасений?",
     "Стараетесь не оставаться в одиночестве?",
     "Часто открываете окно, чтобы «стало легче»?",
-    "В общественные местах предпочитаете садиться поближе к выходу?",
+    "В общественных местах предпочитаете садиться поближе к выходу?",
     "Отвлекаетесь в телефон, чтобы не замечать неприятные телесные ощущения?",
     "Избегаете поездок за город, чтобы не оставаться без мобильной связи и интернета?"
 ]
@@ -289,7 +266,7 @@ avoidance_questions = [
 async def send_avoidance_intro(chat_id: int):
     text = (
         "Давайте проверим, насколько правильно Вы действуете в ситуациях, связанных со страхом?\n"
-        "🗳 Пройдите короткий тест - всего 8 вопросов с ответами Да/Нет."
+        "🗳 Пройдите короткий тест — всего 8 вопросов с ответами Да/Нет."
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Начать тест", callback_data="avoidance_start")]]
@@ -321,7 +298,7 @@ async def send_question(chat_id: int, index: int):
 
 @router.callback_query(F.data.startswith("ans_"))
 async def handle_answer(callback: CallbackQuery):
-    # 1) Подтверждаем колбэк быстро
+    # 1) подтверждаем колбэк сразу
     try:
         await callback.answer()
     except Exception:
@@ -329,18 +306,17 @@ async def handle_answer(callback: CallbackQuery):
 
     chat_id = callback.message.chat.id
 
-    # 2) Делаем предыдущие кнопки неактивными
+    # 2) гасим клавиатуру у текущего вопроса (делаем прошлые кнопки неактивными)
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
-        pass  # Если уже без клавиатуры — ок
+        pass
 
-    # 3) Основная логика
+    # 3) основная логика под защитой
     try:
         _, ans, idx = callback.data.split("_")
         idx = int(idx)
 
-        # Надёжная запись ответа (перезапишет ответ на этот вопрос)
         conn = sqlite3.connect(DB_PATH, timeout=10)
         cursor = conn.cursor()
         cursor.execute(
@@ -352,14 +328,12 @@ async def handle_answer(callback: CallbackQuery):
 
         log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
 
-        # Короткая пауза, чтобы Telegram точно обработал редактирование
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.2)  # дать Telegram и SQLite всё зафиксировать
 
-        # Следующий шаг
         if idx + 1 < len(avoidance_questions):
             await send_question(chat_id, idx + 1)
         else:
-            await asyncio.sleep(0.2)  # дать SQLite дописать ответ
+            await asyncio.sleep(0.2)
             await finish_test(chat_id)
 
     except Exception as e:
@@ -370,29 +344,18 @@ async def handle_answer(callback: CallbackQuery):
         except Exception:
             pass
 
-async def finish_test(chat_id: int):
-    # Подсчёт количества "Да"
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT answer FROM answers WHERE user_id=? ORDER BY question ASC", (chat_id,))
-    rows = cursor.fetchall()
-    conn.close()
-
-    yes_count = sum(1 for (a,) in rows if (a or "").lower() == "yes" or (a or "").lower() == "да" or (a or "").lower() == "yes".lower())
-
-    # Итоговое сообщение + две кнопки реакции
-    text = (
-        f"Готово! Вы ответили «Да» на {yes_count} из {len(avoidance_questions)} вопросов.\n\n"
-        "Чем больше ответов «Да», тем вероятнее, что избегание и «безопасные» действия поддерживают тревогу.\n\n"
-        "Как ощущается результат?"
+# =========================================================
+# 4.1. Итог теста
+# =========================================================
+def _cta_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Хорошо 😌", callback_data="avoidance_ok"),
+                InlineKeyboardButton(text="Нет, пока боюсь 🙈", callback_data="avoidance_scared"),
+            ]
+        ]
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Хорошо 😌", callback_data="avoidance_ok")],
-        [InlineKeyboardButton(text="Нет, пока боюсь 🙈", callback_data="avoidance_scared")]
-    ])
-    await bot.send_message(chat_id, text, reply_markup=kb)
-    upsert_user(chat_id, step="avoidance_finished")
-    log_event(chat_id, "bot_avoidance_finished", f"Да: {yes_count}")
 
 @router.callback_query(F.data == "avoidance_ok")
 async def handle_avoidance_ok(callback: CallbackQuery):
@@ -408,6 +371,97 @@ async def handle_avoidance_scared(callback: CallbackQuery):
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
     asyncio.create_task(send_case_story(callback.message.chat.id))
 
+async def finish_test(chat_id: int):
+    # собираем ответы
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT answer FROM answers WHERE user_id=?", (chat_id,))
+    answers = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    yes_count = answers.count("yes")
+    upsert_user(chat_id, step="avoidance_done")
+    log_event(chat_id, "user_finished_test", f"Ответов 'ДА': {yes_count}")
+
+    # тексты
+    chain = (
+        "Чем больше вынужденных ограничений мы накладываем на свою жизнь ➡️ тем большую важность мы придаём панике\n"
+        "⬇️\nТем больше концентрируемся на своём теле\n"
+        "⬇️\nТем больше чувствуем в нём неожиданные/неприятные ощущения\n"
+        "⬇️\nТем больше переживаем по поводу них.\n\nИ так до бесконечности 🔄"
+    )
+
+    if yes_count >= 4:
+        part1 = (
+            "✅ Тест завершён.\n\n"
+            "Судя по Вашим ответам, Вам приходится довольно сильно подстраивать свою жизнь под "
+            "<b><i>избегание</i></b> возможных повторных приступов паники.\n" + chain
+        )
+        part2 = (
+            "☀️ Хорошая новость в том, что мы в силах менять стратегию своих действий — и тем самым разрывать этот порочный круг.\n\n"
+            "Вы уже почитали в моём гайде о том, как правильно отвечать себе на пугающие <u>мысли</u>. "
+            "Поэтому теперь, держа под рукой эту памятку, Вы можете и в своих <u>действиях</u> попробовать немного зайти за грань того, в чём ограничивает Вас тревога.\n\n"
+            "Я предлагаю следующее.\n\nВозьмите один из пунктов, на который Вы ответили «Да», и начните делать его наоборот.\n\n"
+            "🔹 Привыкли всегда носить с собой бутылку воды? 👉🏼 Оставьте её дома!\n"
+            "🔹 Держите окно приоткрытым? 👉🏼 Побудьте подольше в небольшом дефиците кислорода.\n"
+            "И т.п.\n\n"
+            "Но не всё сразу! Возьмите сначала только одно правило и поработайте над отказом от него пару недель.\n\n"
+            "Это будет дискомфортно, но я обещаю: это даст Вам больше уверенности в своей способности справляться со страхом 🦁\n\n"
+            "Попробуете?"
+        )
+        await bot.send_message(chat_id, part1, parse_mode="HTML")
+        await asyncio.sleep(5)
+        await bot.send_message(chat_id, part2, parse_mode="HTML", reply_markup=_cta_keyboard())
+
+    elif 2 <= yes_count <= 3:
+        part1 = (
+            "✅ Тест завершён.\n\n"
+            "Судя по Вашим ответам, Вам в некоторой степени приходится подстраивать свою жизнь под "
+            "<b><i>избегание</i></b> возможных повторных приступов паники.\n" + chain
+        )
+        part2 = (
+            "☀️ Хорошая новость в том, что Вы можете менять стратегию действий и разрывать этот круг.\n\n"
+            "Вы уже почитали в моём гайде о том, как правильно отвечать себе на пугающие <u>мысли</u>. "
+            "Теперь, опираясь на памятку, попробуйте в <u>действиях</u> немного расширить привычные границы.\n\n"
+            "Возьмите один пункт «Да» и делайте наоборот.\n\n"
+            "🔹 Бутылка воды? 👉🏼 Оставьте дома.\n"
+            "🔹 Окно приоткрыто? 👉🏼 Немного потерпите без него.\n\n"
+            "Начните с одного правила и дайте себе время. Это добавит уверенности 🦁\n\n"
+            "Попробуете?"
+        )
+        await bot.send_message(chat_id, part1, parse_mode="HTML")
+        await asyncio.sleep(5)
+        await bot.send_message(chat_id, part2, parse_mode="HTML", reply_markup=_cta_keyboard())
+
+    elif yes_count == 1:
+        text = (
+            "✅ Тест завершён.\n\n"
+            "Судя по Вашим ответам, Вы практически не позволяете страху менять Ваш образ жизни. Это отлично!\n\n"
+            "Потому что <b><i>избегание</i></b> часто загоняет в ловушку:\n" + chain + "\n\n"
+            "Вы уже почитали в моём гайде о том, как правильно отвечать себе на пугающие <u>мысли</u>. "
+            "Теперь можно и в <u>действиях</u> вернуть себе полностью нормальную жизнь.\n\n"
+            "Возьмите тот единственный пункт «Да» и делайте наоборот.\n\n"
+            "🔹 Бутылка воды? 👉🏼 Оставьте дома.\n"
+            "🔹 Окно приоткрыто? 👉🏼 Побудьте без него.\n\n"
+            "Это может быть некомфортно, но добавит уверенности 🦁\n\n"
+            "Попробуете?"
+        )
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=_cta_keyboard())
+
+    else:  # yes_count == 0
+        text = (
+            "✅ Тест завершён.\n\n"
+            "Судя по Вашим ответам, Вы не позволяете страху менять Ваш образ жизни. Это отлично!\n\n"
+            "Если есть какие-то избегания, которые не попали в опросник, теперь — держа под рукой памятку — "
+            "можно и в <u>действиях</u> вернуть себе полностью нормальную жизнь.\n\n"
+            "Примеры:\n"
+            "🔹 Стараетесь не вспоминать про паническую атаку? 👉🏼 Повспоминайте специально.\n"
+            "🔹 Избегаете места первого приступа? 👉🏼 Навестите его ещё раз.\n\n"
+            "Это может быть дискомфортно, но даст максимум уверенности 🦁\n\n"
+            "Попробуете?"
+        )
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=_cta_keyboard())
+
 # =========================================================
 # 5. ДАЛЬНЕЙШИЕ ЭТАПЫ
 # =========================================================
@@ -417,7 +471,7 @@ async def send_case_story(chat_id: int):
         "История пациента: как страх становится привычкой.\n\n"
         "Одна моя пациентка несколько лет избегала поездок в метро, опасаясь, что станет плохо. "
         "Но чем больше она избегала, тем сильнее закреплялся страх. "
-        "Мы начали постепенно возвращать эти ситуации - и паника утратила власть."
+        "Мы начали постепенно возвращать эти ситуации — и паника утратила власть."
     )
     await bot.send_message(chat_id, text)
     upsert_user(chat_id, step="case_story")
@@ -430,7 +484,6 @@ async def send_chat_invite(chat_id: int):
         "Когда речь идёт о взаимодействии со сложными эмоциями, часто помогает общение с теми, кто тоже идёт по этому пути.\n\n"
         "У меня есть открытый чат, где можно задать вопросы мне, а также обсудить свой опыт с другими участниками."
     )
-
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -441,10 +494,9 @@ async def send_chat_invite(chat_id: int):
             ]
         ]
     )
-
     await bot.send_message(chat_id, text, reply_markup=keyboard)
     upsert_user(chat_id, step="chat_invite_sent")
-    log_event(chat_id, "bot_chat_invite_sent", "Отправлено приглашение в чат с кнопкой ❤️")
+    log_event(chat_id, "bot_chat_invite_sent", "Приглашение в чат отправлено")
     asyncio.create_task(send_self_disclosure(chat_id))
 
 async def send_self_disclosure(chat_id: int):
@@ -452,7 +504,7 @@ async def send_self_disclosure(chat_id: int):
     text = (
         "Иногда и мне важно обсуждать сложные случаи с коллегами. "
         "Живое общение даёт больше, чем книги или технологии. "
-        "Так я строю свои консультации - живое присутствие и понимание без шаблонов."
+        "Так я строю свои консультации — живое присутствие и понимание без шаблонов."
     )
     await bot.send_message(chat_id, text)
     upsert_user(chat_id, step="self_disclosure")
@@ -462,7 +514,7 @@ async def send_self_disclosure(chat_id: int):
 async def send_consultation_offer(chat_id: int):
     await asyncio.sleep(5)
     text = (
-        "Если хотите пойти глубже - обсудим не только панические атаки, "
+        "Если хотите пойти глубже — обсудим не только панические атаки, "
         "но и темы сна и обсессивных мыслей. "
         "🕊 Я провожу индивидуальные консультации, где мы работаем с корнями страха.\n\n"
         "Записаться можно здесь: https://лечение-паники.рф"
