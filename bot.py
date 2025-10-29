@@ -295,31 +295,54 @@ async def send_question(chat_id: int, index: int):
 
 @router.callback_query(F.data.startswith("ans_"))
 async def handle_answer(callback: CallbackQuery):
+    # --- 1. Подтверждаем колбэк мгновенно, чтобы Telegram не "думал", что бот завис ---
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
     chat_id = callback.message.chat.id
-    _, ans, idx = callback.data.split("_")
-    idx = int(idx)
 
-    # ✅ 1. Сразу подтверждаем нажатие, чтобы Telegram разблокировал кнопку
-    await callback.answer()
+    # --- 2. Гасим клавиатуру у текущего сообщения (делаем прошлые кнопки неактивными) ---
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass  # Если сообщение уже без клавиатуры — просто игнорируем
 
-    # ✅ 2. Сохраняем ответ
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR REPLACE INTO answers (user_id, question, answer) VALUES (?, ?, ?)",
-        (chat_id, idx, ans)
-    )
-    conn.commit()
-    conn.close()
-    log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
+    # --- 3. Основная логика под защитой ---
+    try:
+        _, ans, idx = callback.data.split("_")
+        idx = int(idx)
 
-    # ✅ 3. После подтверждения — логика перехода
-    if idx + 1 < len(avoidance_questions):
-        await send_question(chat_id, idx + 1)
-    else:
-        # Делаем маленькую паузу, чтобы Telegram обработал callback полностью
-        await asyncio.sleep(0.3)
-        await finish_test(chat_id)
+        # Надёжная запись ответа (перезаписывает, если был раньше)
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO answers (user_id, question, answer) VALUES (?, ?, ?)",
+            (chat_id, idx, ans)
+        )
+        conn.commit()
+        conn.close()
+
+        log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
+
+        # Пауза, чтобы Telegram точно обработал callback и редактирование клавиатуры
+        await asyncio.sleep(0.2)
+
+        # Следующий шаг
+        if idx + 1 < len(avoidance_questions):
+            await send_question(chat_id, idx + 1)
+        else:
+            await finish_test(chat_id)
+
+    except Exception as e:
+        import traceback
+        logger.error("handle_answer failed: %s\n%s", e, traceback.format_exc())
+        try:
+            await bot.send_message(chat_id, "Техническая заминка при обработке ответа. Попробуйте ещё раз.")
+        except Exception:
+            pass
+
 
 
 
