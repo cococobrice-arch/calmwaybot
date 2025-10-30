@@ -201,8 +201,6 @@ async def send_material(callback: CallbackQuery):
 # 3. ПРОВЕРКА ПОДПИСКИ И КОРРЕКТНОЕ ПРОДОЛЖЕНИЕ
 # =========================================================
 async def check_subscription_and_continue(chat_id: int):
-    """Проверяем подписку. Если подписан — идём дальше без приглашения.
-       Если не подписан — отправляем приглашение, но всё равно продолжаем сценарий."""
     await asyncio.sleep(5)
     is_subscribed = False
     try:
@@ -212,13 +210,13 @@ async def check_subscription_and_continue(chat_id: int):
         upsert_user(chat_id, subscribed=1 if is_subscribed else 0)
         log_event(chat_id, "bot_subscription_checked", f"Подписан: {is_subscribed}")
     except TelegramBadRequest as e:
-        # Часто на публичных каналах get_chat_member кидает ошибку — продолжаем сценарий, считаем подписанным
         logger.warning(f"Не удалось проверить подписку: {e} (считаем подписанным)")
         is_subscribed = True
         log_event(chat_id, "bot_subscription_checked", "Ошибка проверки, принудительно считаем подписанным")
     except Exception as e:
         logger.warning(f"Сбой проверки подписки: {e}")
-        log_event(chat_id, "bot_subscription_checked", "Ошибка проверки (Exception)")
+        is_subscribed = True  # ✅ предотвращает зависание
+        log_event(chat_id, "bot_subscription_checked", "Ошибка проверки (Exception) — считаем подписанным")
 
     if not is_subscribed:
         keyboard = InlineKeyboardMarkup(
@@ -242,7 +240,6 @@ async def check_subscription_and_continue(chat_id: int):
         except Exception as e:
             logger.warning(f"Ошибка отправки приглашения на канал: {e}")
 
-    # Всегда продолжаем сценарий
     asyncio.create_task(send_after_material(chat_id))
 
 # =========================================================
@@ -360,16 +357,26 @@ def _cta_keyboard() -> InlineKeyboardMarkup:
 @router.callback_query(F.data == "avoidance_ok")
 async def handle_avoidance_ok(callback: CallbackQuery):
     await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await bot.send_message(callback.message.chat.id, "Супер! У Вас всё получится! 💪🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Хорошо 😌")
-    asyncio.create_task(send_case_story(callback.message.chat.id))
+    await send_case_story(callback.message.chat.id)  # <── заменено
 
 @router.callback_query(F.data == "avoidance_scared")
 async def handle_avoidance_scared(callback: CallbackQuery):
     await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await bot.send_message(callback.message.chat.id, "Ничего, иногда нужно собраться с силами, чтобы решиться на то, что тревожно 🫶🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
-    asyncio.create_task(send_case_story(callback.message.chat.id))
+    await send_case_story(callback.message.chat.id)  # <── заменено
+
+
 
 async def finish_test(chat_id: int):
     # собираем ответы
