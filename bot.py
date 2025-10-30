@@ -215,7 +215,7 @@ async def check_subscription_and_continue(chat_id: int):
         log_event(chat_id, "bot_subscription_checked", "Ошибка проверки, принудительно считаем подписанным")
     except Exception as e:
         logger.warning(f"Сбой проверки подписки: {e}")
-        is_subscribed = True  # ✅ предотвращает зависание
+        is_subscribed = True
         log_event(chat_id, "bot_subscription_checked", "Ошибка проверки (Exception) — считаем подписанным")
 
     if not is_subscribed:
@@ -245,25 +245,25 @@ async def check_subscription_and_continue(chat_id: int):
 # =========================================================
 # 4. ОПРОС ПО ИЗБЕГАНИЮ
 # =========================================================
+avoidance_questions = [
+    "Вы часто измеряете давление или пульс? 💓",
+    "Когда выходите из дома, берёте с собой бутылку воды? 💧",
+    "Отказались от спорта или физических нагрузок из-за опасений? 🧎🏻‍♀️‍➡️",
+    "Стараетесь не оставаться в одиночестве? 👥",
+    "Часто открываете окно, чтобы не было душно? 💨",
+    "В общественных местах предпочитаете садиться поближе к выходу? 🚪",
+    "Отвлекаетесь в телефон, чтобы не замечать неприятные телесные ощущения? 📲",
+    "Избегаете поездок за город, чтобы не оставаться без мобильной связи и интернета? 📶"
+]
+
 async def send_after_material(chat_id: int):
     await asyncio.sleep(5)
     await send_avoidance_intro(chat_id)
 
-avoidance_questions = [
-    "Вы часто измеряете давление или пульс?",
-    "Когда выходите из дома, берёте с собой бутылку воды?",
-    "Отказались от спорта или физических нагрузок из-за опасений?",
-    "Стараетесь не оставаться в одиночестве?",
-    "Часто открываете окно, чтобы «стало легче»?",
-    "В общественных местах предпочитаете садиться поближе к выходу?",
-    "Отвлекаетесь в телефон, чтобы не замечать неприятные телесные ощущения?",
-    "Избегаете поездок за город, чтобы не оставаться без мобильной связи и интернета?"
-]
-
 async def send_avoidance_intro(chat_id: int):
     text = (
-        "Давайте проверим, насколько правильно Вы действуете в ситуациях, связанных со страхом?\n"
-        "🗳 Пройдите короткий тест — всего 8 вопросов с ответами Да/Нет."
+        "Давайте проверим, насколько правильно Вы действуете в ситуациях, связанных со страхом?\n\n "
+        "Пройдите короткий тест — всего 8 вопросов с ответами Да/Нет 🗳"
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Начать тест", callback_data="avoidance_start")]]
@@ -295,25 +295,18 @@ async def send_question(chat_id: int, index: int):
 
 @router.callback_query(F.data.startswith("ans_"))
 async def handle_answer(callback: CallbackQuery):
-    # 1) подтверждаем колбэк сразу
     try:
         await callback.answer()
     except Exception:
         pass
-
     chat_id = callback.message.chat.id
-
-    # 2) гасим клавиатуру у текущего вопроса (делаем прошлые кнопки неактивными)
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-
-    # 3) основная логика под защитой
     try:
         _, ans, idx = callback.data.split("_")
         idx = int(idx)
-
         conn = sqlite3.connect(DB_PATH, timeout=10)
         cursor = conn.cursor()
         cursor.execute(
@@ -322,17 +315,13 @@ async def handle_answer(callback: CallbackQuery):
         )
         conn.commit()
         conn.close()
-
         log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
-
-        await asyncio.sleep(0.2)  # дать Telegram и SQLite всё зафиксировать
-
+        await asyncio.sleep(0.2)
         if idx + 1 < len(avoidance_questions):
             await send_question(chat_id, idx + 1)
         else:
             await asyncio.sleep(0.2)
             await finish_test(chat_id)
-
     except Exception as e:
         import traceback
         logger.error("handle_answer failed: %s\n%s", e, traceback.format_exc())
@@ -363,7 +352,8 @@ async def handle_avoidance_ok(callback: CallbackQuery):
         pass
     await bot.send_message(callback.message.chat.id, "Супер! У Вас всё получится! 💪🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Хорошо 😌")
-    await send_case_story(callback.message.chat.id)  # <── заменено
+    await send_case_story(callback.message.chat.id)
+
 
 @router.callback_query(F.data == "avoidance_scared")
 async def handle_avoidance_scared(callback: CallbackQuery):
@@ -374,8 +364,7 @@ async def handle_avoidance_scared(callback: CallbackQuery):
         pass
     await bot.send_message(callback.message.chat.id, "Ничего, иногда нужно собраться с силами, чтобы решиться на то, что тревожно 🫶🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
-    await send_case_story(callback.message.chat.id)  # <── заменено
-
+    await send_case_story(callback.message.chat.id)
 
 
 async def finish_test(chat_id: int):
@@ -390,7 +379,6 @@ async def finish_test(chat_id: int):
     upsert_user(chat_id, step="avoidance_done")
     log_event(chat_id, "user_finished_test", f"Ответов 'ДА': {yes_count}")
 
-    # тексты
     chain = (
         "Чем больше вынужденных ограничений мы накладываем на свою жизнь ➡️ тем большую важность мы придаём панике\n"
         "⬇️\nТем больше концентрируемся на своём теле\n"
@@ -399,8 +387,9 @@ async def finish_test(chat_id: int):
     )
 
     if yes_count >= 4:
+        await bot.send_message(chat_id, "Тест завершён. Подождите секунду, обрабатываем результаты ⏳")
+        await asyncio.sleep(3)
         part1 = (
-            "✅ Тест завершён.\n\n"
             "Судя по Вашим ответам, Вам приходится довольно сильно подстраивать свою жизнь под "
             "<b><i>избегание</i></b> возможных повторных приступов паники.\n" + chain
         )
@@ -421,8 +410,9 @@ async def finish_test(chat_id: int):
         await bot.send_message(chat_id, part2, parse_mode="HTML", reply_markup=_cta_keyboard())
 
     elif 2 <= yes_count <= 3:
+        await bot.send_message(chat_id, "Тест завершён. Подождите секунду, обрабатываем результаты ⏳")
+        await asyncio.sleep(3)
         part1 = (
-            "✅ Тест завершён.\n\n"
             "Судя по Вашим ответам, Вам в некоторой степени приходится подстраивать свою жизнь под "
             "<b><i>избегание</i></b> возможных повторных приступов паники.\n" + chain
         )
@@ -441,8 +431,9 @@ async def finish_test(chat_id: int):
         await bot.send_message(chat_id, part2, parse_mode="HTML", reply_markup=_cta_keyboard())
 
     elif yes_count == 1:
+        await bot.send_message(chat_id, "Тест завершён. Подождите секунду, обрабатываем результаты ⏳")
+        await asyncio.sleep(3)
         text = (
-            "✅ Тест завершён.\n\n"
             "Судя по Вашим ответам, Вы практически не позволяете страху менять Ваш образ жизни. Это отлично!\n\n"
             "Потому что <b><i>избегание</i></b> часто загоняет в ловушку:\n" + chain + "\n\n"
             "Вы уже почитали в моём гайде о том, как правильно отвечать себе на пугающие <u>мысли</u>. "
@@ -456,14 +447,15 @@ async def finish_test(chat_id: int):
         await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=_cta_keyboard())
 
     else:  # yes_count == 0
+        await bot.send_message(chat_id, "Тест завершён. Подождите секунду, обрабатываем результаты ⏳")
+        await asyncio.sleep(3)
         text = (
-            "✅ Тест завершён.\n\n"
             "Судя по Вашим ответам, Вы не позволяете страху менять Ваш образ жизни. Это отлично!\n\n"
             "Если есть какие-то избегания, которые не попали в опросник, теперь — держа под рукой памятку — "
             "можно и в <u>действиях</u> вернуть себе полностью нормальную жизнь.\n\n"
             "Примеры:\n"
-            "🔹 Стараетесь не вспоминать про паническую атаку? 👉🏼 Повспоминайте специально.\n"
-            "🔹 Избегаете места первого приступа? 👉🏼 Навестите его ещё раз.\n\n"
+            "🔹 Стараетесь не вспоминать про паническую атаку? 👉🏼 Повспоминайте специально.\n\n"
+            "🔹 Избегаете места первого приступа? 👉🏼 Навестите его ещё раз.\n\n\n"
             "Это может быть дискомфортно, но даст максимум уверенности 🦁\n\n"
             "Попробуете?"
         )
@@ -495,7 +487,7 @@ async def send_chat_invite(chat_id: int):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💬 Вступить ❤️",
+                    text="Вступить ❤️",
                     url="https://t.me/Ocd_and_Anxiety_Chat"
                 )
             ]
