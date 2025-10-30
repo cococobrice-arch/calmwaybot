@@ -96,7 +96,7 @@ def get_user_events_only(user_id: int):
     return [r for r in rows if str(r[1]).startswith("user_")]
 
 # =========================================================
-# Главная
+# Главная страница панели
 # =========================================================
 @app.get("/panel-database", response_class=HTMLResponse)
 async def panel_main():
@@ -119,7 +119,7 @@ async def panel_main():
 
     html = f"""
     {STYLE}
-    <h1>CalmWayBot — Users Database</h1>
+    <h1>CalmWayBot — База пользователей</h1>
     <table>
         <tr><th>Пользователь</th><th>Источник</th><th>Этап</th><th>Подписан</th><th>Последнее действие</th><th></th></tr>
         {rows_html}
