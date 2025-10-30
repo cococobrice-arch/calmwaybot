@@ -153,7 +153,7 @@ async def cmd_start(message: Message):
     ])
     await message.answer(
         """Если Вы зашли в этот бот, значит, Ваши тревоги уже успели сильно вмешаться в жизнь.\n \n 
-• Частое сердцебиение 💓, \n • потемнение в глазах 🌘, \n • головокружение🌀, \n • пот по спине😰, \n • страх потерять рассудок...\n 
+• Частое сердцебиение 💓 \n • потемнение в глазах 🌘 \n • головокружение🌀 \n • пот по спине😰 \n • страх потерять рассудок...\n 
 Знакомо? 
 
 Вероятно, Вы уже знаете, что такие наплывы страха называются <b>паническими атаками</b>. 
@@ -299,14 +299,13 @@ async def handle_answer(callback: CallbackQuery):
         await callback.answer()
     except Exception:
         pass
+
     chat_id = callback.message.chat.id
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
     try:
         _, ans, idx = callback.data.split("_")
         idx = int(idx)
+
+        # сохраняем ответ в базу
         conn = sqlite3.connect(DB_PATH, timeout=10)
         cursor = conn.cursor()
         cursor.execute(
@@ -315,13 +314,27 @@ async def handle_answer(callback: CallbackQuery):
         )
         conn.commit()
         conn.close()
+
         log_event(chat_id, "user_answer", f"Вопрос {idx + 1}: {ans.upper()}")
+
+        # небольшая пауза и сразу отправляем следующий вопрос
         await asyncio.sleep(0.2)
         if idx + 1 < len(avoidance_questions):
             await send_question(chat_id, idx + 1)
+            # скрываем старые кнопки чуть позже, чтобы переход был плавным
+            await asyncio.sleep(0.1)
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
         else:
             await asyncio.sleep(0.2)
             await finish_test(chat_id)
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
     except Exception as e:
         import traceback
         logger.error("handle_answer failed: %s\n%s", e, traceback.format_exc())
@@ -329,6 +342,7 @@ async def handle_answer(callback: CallbackQuery):
             await bot.send_message(chat_id, "Техническая заминка при обработке ответа. Попробуйте ещё раз.")
         except Exception:
             pass
+
 
 # =========================================================
 # 4.1. Итог теста
@@ -451,7 +465,7 @@ async def finish_test(chat_id: int):
         await asyncio.sleep(3)
         text = (
             "Судя по Вашим ответам, Вы не позволяете страху менять Ваш образ жизни. Это отлично!\n\n"
-            "Если у Вас есть какие-то <b><i>избегания</i></b>, которые не попали в опросник, теперь — держа под рукой памятку — "
+            "Если у Вас есть какие-то <b><i>избегания</i></b>, которые не попали в опросник, то теперь — держа под рукой памятку — "
             "можно и в <u>действиях</u> вернуть себе полностью нормальную жизнь.\n\n"
             "Примеры:\n"
             "🔹 Стараетесь не вспоминать про паническую атаку? 👉🏼 Повспоминайте про неё специально.\n\n"
