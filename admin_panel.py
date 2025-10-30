@@ -27,7 +27,7 @@ a { color: #58a6ff; text-decoration: none; }
 """
 
 # =========================================================
-# Инициализация БД/схемы при старте панели
+# Инициализация БД/схемы
 # =========================================================
 def ensure_schema():
     conn = sqlite3.connect(DB_PATH)
@@ -38,7 +38,8 @@ def ensure_schema():
             source TEXT,
             step TEXT,
             subscribed INTEGER DEFAULT 0,
-            last_action TEXT
+            last_action TEXT,
+            username TEXT
         )
     """)
     cursor.execute("""
@@ -50,12 +51,7 @@ def ensure_schema():
             details TEXT
         )
     """)
-    # username-колонка
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    conn.commit()
     conn.close()
 
 ensure_schema()
@@ -63,6 +59,20 @@ ensure_schema()
 # =========================================================
 # Хелперы
 # =========================================================
+STEP_LABELS = {
+    "start": "Начало / запуск бота",
+    "got_material": "Получил гайд",
+    "avoidance_test": "Проходит опрос избегания",
+    "avoidance_done": "Завершил опрос",
+    "case_story": "Прочитал историю пациента",
+    "chat_invite_sent": "Получил приглашение в чат",
+    "self_disclosure": "Сообщение о подходе к терапии",
+    "consultation_offer": "Получил предложение консультации",
+}
+
+def humanize_step(step: str) -> str:
+    return STEP_LABELS.get(step, step or "-")
+
 def fmt_time(ts: str) -> str:
     try:
         return datetime.fromisoformat(ts).strftime("%Y-%m-%d – %H:%M")
@@ -77,21 +87,16 @@ def get_users():
     conn.close()
     return rows
 
-# Показываем только действия пользователя (фильтр по префиксу 'user_')
 def get_user_events_only(user_id: int):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT timestamp, action, details FROM events WHERE user_id=? ORDER BY id ASC",
-        (user_id,)
-    )
+    cursor.execute("SELECT timestamp, action, details FROM events WHERE user_id=? ORDER BY id ASC", (user_id,))
     rows = cursor.fetchall()
     conn.close()
-    filtered = [row for row in rows if str(row[1]).startswith("user_")]
-    return filtered
+    return [r for r in rows if str(r[1]).startswith("user_")]
 
 # =========================================================
-# Главная (без авторизации)
+# Главная
 # =========================================================
 @app.get("/panel-database", response_class=HTMLResponse)
 async def panel_main():
@@ -105,7 +110,7 @@ async def panel_main():
         <tr>
             <td>{display_name}</td>
             <td>{source}</td>
-            <td>{step}</td>
+            <td>{humanize_step(step)}</td>
             <td>{status}</td>
             <td>{last_action_fmt}</td>
             <td><a href="/panel-database/user/{user_id}"><button>История</button></a></td>
@@ -124,19 +129,16 @@ async def panel_main():
     return html
 
 # =========================================================
-# История пользователя (только действия пользователя)
+# История пользователя
 # =========================================================
 @app.get("/panel-database/user/{user_id}", response_class=HTMLResponse)
 async def user_history(user_id: int):
     events = get_user_events_only(user_id)
-    if not events:
-        rows = "<tr><td colspan='3'>Нет записей действий пользователя</td></tr>"
-    else:
-        rows = ""
-        for ts, action, details in events:
-            details = details or "-"
-            rows += f"<tr><td>{fmt_time(ts)}</td><td>{action}</td><td>{details}</td></tr>"
-
+    rows = (
+        "<tr><td colspan='3'>Нет записей действий пользователя</td></tr>"
+        if not events else
+        "".join(f"<tr><td>{fmt_time(ts)}</td><td>{action}</td><td>{details or '-'}</td></tr>" for ts, action, details in events)
+    )
     html = f"""
     {STYLE}
     <h1>История пользователя {user_id}</h1>
