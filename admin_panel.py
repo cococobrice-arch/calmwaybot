@@ -9,7 +9,32 @@ from fastapi.responses import HTMLResponse
 load_dotenv()
 DB_PATH = os.getenv("DATABASE_PATH", "users.db")
 
-app = FastAPI(title="CalmWayBot Admin Panel")
+app = FastAPI(
+    title="CalmWayBot Admin Panel",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+
+app.add_middleware(GZipMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.middleware("http")
+async def no_cache_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 
 # -------------------- Стили --------------------
 STYLE = """
