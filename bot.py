@@ -281,10 +281,28 @@ async def send_avoidance_intro(chat_id: int):
 async def start_avoidance_test(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     await callback.answer()
+
+    # удаляем старые ответы, если тест уже проходился раньше
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM answers WHERE user_id=?", (chat_id,))
+    conn.commit()
+    conn.close()
+
+    # фиксируем этап и логируем
     upsert_user(chat_id, step="avoidance_test")
     log_event(chat_id, "user_clicked_avoidance_start", "Начал опрос избегания")
+
+    # удаляем кнопку "Начать тест", чтобы она исчезла навсегда
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    # начинаем тест
     await bot.send_message(chat_id, "Итак, начнём:")
     await send_question(chat_id, 0)
+
 
 async def send_question(chat_id: int, index: int):
     if index >= len(avoidance_questions):
