@@ -228,19 +228,25 @@ async def check_subscription_and_continue(chat_id: int):
             "У меня есть телеграм-канал, где я делюсь нюансами о преодолении тревоги "
             "и развеиваю мифы о <i>не</i>работающих методах. "
             "Никакой воды — только проверенные решения. 💧❌\n\n"
-            'Например, я <a href="https://t.me/OcdAndAnxiety/16">писал пост</a> о том, как неправильное дыхание усиливает паническую атаку.\n\n'
+            'Например, я <a href="https://t.me/OcdAndAnxiety/16">писал пост</a> о том, '
+            "как неправильное дыхание усиливает паническую атаку.\n\n"
             "Подписывайтесь и получайте практические рекомендации 👇🏽"
         )
         try:
             await bot.send_message(
-                chat_id, text, parse_mode="HTML",
-                reply_markup=keyboard, disable_web_page_preview=True
+                chat_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=True
             )
             log_event(chat_id, "bot_channel_invite_sent", "Отправлено приглашение подписаться на канал")
         except Exception as e:
             logger.warning(f"Ошибка отправки приглашения на канал: {e}")
 
-    asyncio.create_task(send_after_material(chat_id))
+    # ✅ теперь дожидаемся выполнения, а не кидаем в фон
+    await send_after_material(chat_id)
+
 
 # =========================================================
 # 4. ОПРОС ПО ИЗБЕГАНИЮ
