@@ -571,13 +571,13 @@ async def send_final_message(chat_id: int):
         'Если чувствуете, что готовы перейти к практической работе над своими симптомами, '
         'то подробнее о том, как проходят консультации со мной, Вы можете почитать по <a href="https://лечение-паники.рф/помощь-психотерапевта">ссылке</a>.'
     )
-    await bot.send_photo(
-        chat_id,
-        photo=photo,
-        caption=text,
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
+await bot.send_photo(
+    chat_id,
+    photo=photo,
+    caption=text,
+    parse_mode="HTML"
+)
+
 
     upsert_user(chat_id, step="final_message_sent")
     log_event(chat_id, "bot_final_message_sent", "Отправлено финальное сообщение с фото")
