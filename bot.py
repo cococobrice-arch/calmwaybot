@@ -540,7 +540,7 @@ async def send_case_story(chat_id: int):
     await bot.send_message(chat_id, text, parse_mode="HTML", disable_web_page_preview=True)
     upsert_user(chat_id, step="case_story")
     log_event(chat_id, "bot_case_story_sent", "Отправлена история пациента")
-    asyncio.create_task(send_final_message(chat_id))
+    await send_final_message(chat_id)
 
 
 async def send_final_message(chat_id: int):
