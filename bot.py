@@ -557,7 +557,6 @@ async def send_final_message(chat_id: int):
     from aiogram.types import FSInputFile
     photo = FSInputFile("media/DSC03503.jpg")
 
-
     text = (
         "С людьми, переживающими панические атаки, я работаю каждый день,"
         "и я хорошо знаю, как важно не откладывать обращение за помощью. "
@@ -571,16 +570,17 @@ async def send_final_message(chat_id: int):
         'Если чувствуете, что готовы перейти к практической работе над своими симптомами, '
         'то подробнее о том, как проходят консультации со мной, Вы можете почитать по <a href="https://лечение-паники.рф/помощь-психотерапевта">ссылке</a>.'
     )
-await bot.send_photo(
-    chat_id,
-    photo=photo,
-    caption=text,
-    parse_mode="HTML"
-)
 
+    await bot.send_photo(
+        chat_id,
+        photo=photo,
+        caption=text,
+        parse_mode="HTML"
+    )
 
     upsert_user(chat_id, step="final_message_sent")
     log_event(chat_id, "bot_final_message_sent", "Отправлено финальное сообщение с фото")
+
 
 
 # =========================================================
