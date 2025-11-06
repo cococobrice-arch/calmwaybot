@@ -395,8 +395,7 @@ async def handle_avoidance_ok(callback: CallbackQuery):
         pass
     await bot.send_message(callback.message.chat.id, "Супер! У Вас всё получится! 💪🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Хорошо 😌")
-    asyncio.create_task(send_case_story(callback.message.chat.id))
-
+    await send_case_story(callback.message.chat.id)
 
 
 @router.callback_query(F.data == "avoidance_scared")
@@ -408,7 +407,8 @@ async def handle_avoidance_scared(callback: CallbackQuery):
         pass
     await bot.send_message(callback.message.chat.id, "Ничего, иногда нужно собраться с силами, чтобы решиться на то, что тревожно 🫶🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
-    asyncio.create_task(send_case_story(callback.message.chat.id))
+    await send_case_story(callback.message.chat.id)
+
 
 
 
@@ -512,6 +512,7 @@ async def finish_test(chat_id: int):
 # 5. ДАЛЬНЕЙШИЕ ЭТАПЫ
 # =========================================================
 async def send_case_story(chat_id: int):
+    logger.info(f"→ Начато send_case_story для chat_id={chat_id}")  # ← добавили в самое начало
     await asyncio.sleep(5)
     text = (
         "<b>Чтобы ослабить власть тревоги над нами, нам нужно начать делать то, что страшно.</b>\n\n"
@@ -543,8 +544,10 @@ async def send_case_story(chat_id: int):
     upsert_user(chat_id, step="case_story")
     log_event(chat_id, "bot_case_story_sent", "Отправлена история пациента")
 
-    # Запускаем финальное сообщение отдельно, чтобы не блокировать поток
-    asyncio.create_task(send_final_message(chat_id))
+    await asyncio.sleep(2)
+    logger.info(f"→ Запуск финального сообщения для chat_id={chat_id}")  # ← оставляем этот лог
+    await send_final_message(chat_id)
+
 
 
 
