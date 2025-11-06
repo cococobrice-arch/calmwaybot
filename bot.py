@@ -395,7 +395,8 @@ async def handle_avoidance_ok(callback: CallbackQuery):
         pass
     await bot.send_message(callback.message.chat.id, "Супер! У Вас всё получится! 💪🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Хорошо 😌")
-    await send_case_story(callback.message.chat.id)
+    asyncio.create_task(send_case_story(callback.message.chat.id))
+
 
 
 @router.callback_query(F.data == "avoidance_scared")
@@ -407,7 +408,8 @@ async def handle_avoidance_scared(callback: CallbackQuery):
         pass
     await bot.send_message(callback.message.chat.id, "Ничего, иногда нужно собраться с силами, чтобы решиться на то, что тревожно 🫶🏼")
     log_event(callback.message.chat.id, "user_avoidance_response", "Ответил: Нет, пока боюсь 🙈")
-    await send_case_story(callback.message.chat.id)
+    asyncio.create_task(send_case_story(callback.message.chat.id))
+
 
 
 async def finish_test(chat_id: int):
