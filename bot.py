@@ -238,7 +238,7 @@ async def check_subscription_and_continue(chat_id: int):
             "<a href=\"https://t.me/OcdAndAnxiety/28\">Каковы опасные цифры давления?</a>\n"
             "<a href=\"https://t.me/OcdAndAnxiety/34\">Газ для успокоения?</a>\n\n"
             "Подписывайтесь и получайте практические рекомендации 👇🏽"
-)
+
 
         )
         try:
