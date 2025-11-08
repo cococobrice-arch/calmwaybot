@@ -236,7 +236,7 @@ async def check_subscription_and_continue(chat_id: int):
             "🔸 <a href=\"https://t.me/OcdAndAnxiety/16\">Как неправильное дыхание усиливает паническую атаку</a>\n"
             "🔸 <a href=\"https://t.me/OcdAndAnxiety/17\">Алкоголь и первый приступ ПА</a>\n"
             "🔸 <a href=\"https://t.me/OcdAndAnxiety/28\">Каковы опасные цифры давления?</a>\n"
-            "🔸 <a href=\"https://t.me/OcdAndAnxiety/34\">Газ для успокоения?</a>\n\n"
+            "🔸 <a href=\"https://t.me/OcdAndAnxiety/34\">Волшебный газ для успокоения?</a>\n\n"
             "Подписывайтесь и получайте практические рекомендации 👇🏽"
 
 
