@@ -635,8 +635,12 @@ async def send_final_message(chat_id: int):
 
     # 4) отправляем дополнительную фотографию после текста
     await asyncio.sleep(1)
-    extra_photo = FSInputFile("media/025-11-10 005908.jpg")
-    await bot.send_photo(chat_id, photo=extra_photo)
+    extra_photo1 = FSInputFile("media/2025-11-10_005908.jpg")
+    await bot.send_photo(chat_id, photo=extra_photo1)
+
+    await asyncio.sleep(1)
+    extra_photo2 = FSInputFile("media/2025-11-10_011057.jpg")
+    await bot.send_photo(chat_id, photo=extra_photo2)
 
     upsert_user(chat_id, step="final_message_sent")
     log_event(chat_id, "bot_final_message_sent", "Отправлено финальное сообщение с фото и текстом")
