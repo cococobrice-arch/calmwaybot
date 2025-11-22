@@ -323,7 +323,7 @@ async def send_material(callback: CallbackQuery):
         await bot.send_message(chat_id, "⚠️ Файл не найден.")
         log_event(chat_id, "Не удалось найти файл гайда", LINK or "Путь не задан")
 
-    schedule_message(chat_id, prod_seconds=20 * 60, test_seconds=10, kind="channel_invite")
+    schedule_message(chat_id, prod_seconds=2 * 60 * 60, test_seconds=10, kind="channel_invite")
     schedule_message(chat_id, prod_seconds=24 * 60 * 60, test_seconds=20, kind="avoidance_intro")
 
     await callback.answer()
@@ -605,7 +605,7 @@ async def finish_test(chat_id: int):
     if final_msg_id is not None:
         schedule_message(
             user_id=chat_id,
-            prod_seconds=24 * 60 * 60,
+            prod_seconds=22 * 60 * 60,
             test_seconds=10,
             kind="case_story",
             payload=str(final_msg_id),
