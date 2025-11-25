@@ -294,15 +294,28 @@ async def cmd_start(message: Message):
 
     TEST_USER_ID = int(os.getenv("FAST_USER_ID", "0") or 0)
 
-    # Для тестового пользователя полностью очищаем всё, включая events,
-    # для остальных - сбрасываем состояние, но сохраняем логи.
+    # ---- ПРОВЕРЯЕМ, НОВЫЙ ЛИ ЭТО ПОЛЬЗОВАТЕЛЬ ----
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT step FROM users WHERE user_id=?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    # ---- ЕСЛИ ЮЗЕР УЖЕ В БАЗЕ И ЭТО НЕ ПЕРВЫЙ СТАРТ → НЕ ПОКАЗЫВАЕМ ПРИВЕТСТВИЕ ----
+    if row is not None and row[0] != "старт":
+        log_event(user_id, "Повторный вход через /start – приветствие не показываем")
+        await message.answer("Вы уже начали работу со мной — продолжайте в удобном темпе 🙂")
+        return
+
+    # ---- ЕСЛИ ЭТО ТЕСТОВЫЙ ПОЛЬЗОВАТЕЛЬ → ПОЛНАЯ ОЧИСТКА ----
     if user_id == TEST_USER_ID:
         purge_user(user_id, keep_events=False)
         log_event(user_id, "Очистка тестового пользователя")
     else:
+        # ---- НОВЫЙ ЮЗЕР: ОЧИСТИМ USERS/ANSWERS/MSG, НО ОСТАВИМ events ----
         purge_user(user_id, keep_events=True)
 
-    # ---- ЗАПИСЫВАЕМ ИСТОЧНИК В БАЗУ ----
+    # ---- ЗАПИСЫВАЕМ ИСТОЧНИК И СОЗДАЁМ ЗАПИСЬ ПОЛЬЗОВАТЕЛЯ ----
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
 
@@ -357,6 +370,25 @@ async def cmd_start(message: Message):
 
 
 # =========================================================
+# Ручной сброс состояния пользователя (команда /reset)
+# =========================================================
+
+@router.message(F.text == "/reset")
+async def reset_user(message: Message):
+    user_id = message.from_user.id
+
+    # Полностью очистить состояние, но оставить события (логи)
+    purge_user(user_id, keep_events=True)
+
+    log_event(user_id, "Пользователь вручную сбросил состояние", None)
+
+    await message.answer(
+        "История взаимодействия очищена.\n\n"
+        "Чтобы начать заново — введите /start"
+    )
+
+
+# =========================================================
 # 2. МАТЕРИАЛ
 # =========================================================
 
@@ -365,9 +397,36 @@ async def send_material(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     username = callback.from_user.username or None
 
+    # ---- ПРОВЕРКА: ПОЛЬЗОВАТЕЛЬ УЖЕ ПОЛУЧАЛ МАТЕРИАЛ ----
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT step FROM users WHERE user_id=?", (chat_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row and row[0] != "старт":
+        # Убираем клавиатуру, если она вдруг осталась
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+        await callback.answer("Материал уже был выдан ранее.")
+        return
+    # -----------------------------------------------------
+
+    # ---- УБИРАЕМ КЛАВИАТУРУ ПОСЛЕ НАЖАТИЯ ----
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    # -----------------------------------------------------
+
+    # ---- ОБНОВЛЯЕМ СОСТОЯНИЕ ПОЛЬЗОВАТЕЛЯ ----
     upsert_user(chat_id, step="получил_гайд", username=username)
     log_event(chat_id, "Нажата кнопка «Получить гайд»", "Начало выдачи материала")
 
+    # ---- ОТПРАВКА ПРИВЕТСТВЕННОГО КРУЖКА ----
     if VIDEO_NOTE_FILE_ID:
         try:
             await bot.send_chat_action(chat_id, "upload_video_note")
@@ -376,21 +435,26 @@ async def send_material(callback: CallbackQuery):
             logger.warning(f"Ошибка отправки кружка: {e}")
             log_event(chat_id, "Ошибка отправки приветственного видео", str(e))
 
+    # ---- ОТПРАВКА PDF ----
     if LINK and os.path.exists(LINK):
         file = FSInputFile(LINK, filename="Выход из панического круга.pdf")
         await bot.send_document(chat_id, document=file, caption="Вот Ваш первый шаг к спокойствию 🧘🏻‍♀️")
         log_event(chat_id, "Отправлен файл с гайдом", "Гайд отправлен как документ")
+
     elif LINK and LINK.startswith("http"):
         await bot.send_message(chat_id, f"📘 Ваш материал доступен по ссылке: {LINK}")
         log_event(chat_id, "Отправлена ссылка на гайд", LINK)
+
     else:
         await bot.send_message(chat_id, "⚠️ Файл не найден.")
         log_event(chat_id, "Не удалось найти файл гайда", LINK or "Путь не задан")
 
+    # ---- ПЛАНИРУЕМ СООБЩЕНИЯ ДАЛЬШЕ ----
     schedule_message(chat_id, prod_seconds=2 * 60 * 60, test_seconds=10, kind="channel_invite")
     schedule_message(chat_id, prod_seconds=24 * 60 * 60, test_seconds=20, kind="avoidance_intro")
 
     await callback.answer()
+
 
 
 async def send_channel_invite(chat_id: int):
@@ -478,7 +542,30 @@ async def start_avoidance_test(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     await callback.answer()
 
-    # Пользователь начал тест - отменяем автопереход к истории пациентки
+    # ---- ПРОВЕРКА: НЕ НАЧИНАЛ ЛИ ПОЛЬЗОВАТЕЛЬ ТЕСТ РАНЬШЕ ----
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT step FROM users WHERE user_id=?", (chat_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    # Если пользователь уже проходил тест, повторно запускать нельзя
+    if row and row[0] not in ("предложен_тест_избегания", "тест_избегания_начат"):
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+        await callback.answer("Вы уже проходили этот тест.")
+        return
+
+    # ---- УДАЛЯЕМ КЛАВИАТУРУ "Начать тест" ----
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    # ---- УДАЛЯЕМ АВТОЗАДАЧУ перехода к истории пациентки ----
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
     cursor.execute(
@@ -488,17 +575,21 @@ async def start_avoidance_test(callback: CallbackQuery):
     conn.commit()
     conn.close()
 
+    # ---- СБРАСЫВАЕМ ПРЕДЫДУЩИЕ ОТВЕТЫ (ЕСЛИ ЕСТЬ) ----
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM answers WHERE user_id=?", (chat_id,))
     conn.commit()
     conn.close()
 
+    # ---- УСТАНАВЛИВАЕМ НОВЫЙ ШАГ ----
     upsert_user(chat_id, step="тест_избегания_начат")
     log_event(chat_id, "Начат тест избегания", "Нажата кнопка «Начать тест»")
 
+    # ---- ПЕРВОЕ СООБЩЕНИЕ ТЕСТА ----
     await bot.send_message(chat_id, "Итак, начнём:")
     await send_question(chat_id, 0)
+
 
 
 async def send_question(chat_id: int, index: int):
