@@ -5,7 +5,9 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 # Путь к базе основного бота
-DB_PATH = "/home/dmitry/calmwaybot/users.db"
+DB_PATH = os.getenv("DATABASE_PATH")
+if not DB_PATH:
+    raise RuntimeError("DATABASE_PATH is not set in .env")
 
 app = FastAPI(title="CalmWayBot — Admin Panel")
 
