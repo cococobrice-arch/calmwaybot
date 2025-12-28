@@ -23,7 +23,10 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 LINK = os.getenv("LINK_TO_MATERIAL")
 VIDEO_NOTE_FILE_ID = os.getenv("VIDEO_NOTE_FILE_ID")
-DB_PATH = os.getenv("DATABASE_PATH", "users.db")
+DB_PATH = os.getenv("DATABASE_PATH")
+if not DB_PATH:
+    raise RuntimeError("DATABASE_PATH is not set")
+
 CHANNEL_USERNAME = "@OcdAndAnxiety"
 
 MODE = os.getenv("MODE", "prod").lower()
@@ -363,7 +366,7 @@ async def cmd_start(message: Message):
         "Я покажу, как ослабить её власть и перестать ждать нового приступа каждый день.\n\n"
         "Эти состояния имеют чёткую внутреннюю закономерность — и когда Вы поймёте её, Вы сможете взять происходящее под контроль 🛥\n\n"
         "Я приготовил материал, который поможет Вам разобраться, что запускает панические атаки, чем они поддерживаются и как наконец вернуться к расслабленной жизни.\n"
-        "Скачайте его: и дайте отпор страху!",
+        "Скачайте его - и дайте отпор страху!",
         parse_mode="HTML",
         reply_markup=kb,
     )
@@ -481,7 +484,7 @@ async def send_channel_invite(chat_id: int):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Подписаться", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}")]
+            [InlineKeyboardButton(text="Подписаться", url="https://t.me/+mfqalBhytdMyMWMy")]
         ]
     )
 
