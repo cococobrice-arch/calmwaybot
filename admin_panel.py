@@ -4,12 +4,24 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-# Путь к базе основного бота
+try:
+    # Чтобы панель работала и при ручном запуске, и через systemd
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Подхватываем .env, если он есть и если python-dotenv доступен
+if load_dotenv:
+    load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
+
 DB_PATH = os.getenv("DATABASE_PATH")
 if not DB_PATH:
-    raise RuntimeError("DATABASE_PATH is not set in .env")
+    raise RuntimeError("DATABASE_PATH is not set (check /home/dmitry/calmwaybot/.env or systemd EnvironmentFile)")
 
-app = FastAPI(title="CalmWayBot — Admin Panel")
+app = FastAPI(title="CalmWayBot - Admin Panel")
 
 STYLE = """
 <style>
@@ -93,6 +105,7 @@ a {
 </style>
 """
 
+
 def ensure_schema():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -129,8 +142,8 @@ def fmt_time(ts: str) -> str:
     if not ts:
         return "-"
     try:
-        return datetime.fromisoformat(ts).strftime("%Y-%m-%d – %H:%M")
-    except:
+        return datetime.fromisoformat(ts).strftime("%Y-%m-%d - %H:%M")
+    except Exception:
         return ts
 
 
@@ -146,10 +159,6 @@ def get_users():
     conn.close()
     return rows
 
-
-# =====================================================================
-# ✔ НАДЁЖНОЕ ОПРЕДЕЛЕНИЕ ИНТЕРЕСА К КОНСУЛЬТАЦИЯМ (через Python)
-# =====================================================================
 
 def has_consult_interest(user_id: int) -> bool:
     conn = sqlite3.connect(DB_PATH)
@@ -197,7 +206,7 @@ async def panel_main():
 
     html = f"""
     {STYLE}
-    <h1>CalmWayBot — Users</h1>
+    <h1>CalmWayBot - Users</h1>
 
     <table>
         <tr>
@@ -243,7 +252,7 @@ async def user_history(user_id: int):
 
     html = f"""
     {STYLE}
-    <h1>История действий — {user_id}</h1>
+    <h1>История действий - {user_id}</h1>
     <a href="/panel-database">⬅ Назад</a>
 
     <table>
