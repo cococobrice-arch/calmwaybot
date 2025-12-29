@@ -1,28 +1,25 @@
 import os
 import sqlite3
 from datetime import datetime
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-try:
-    from dotenv import load_dotenv
-except Exception:
-    load_dotenv = None
+# ===============================
+# Загрузка переменных окружения
+# ===============================
+load_dotenv()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(BASE_DIR, ".env")
+# ===============================
+# Путь к БД (ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ)
+# ===============================
+DB_PATH = os.getenv(
+    "DATABASE_PATH",
+    "/home/dmitry/calmwaybot_data/users.db"
+)
 
-# Подхватываем переменные из .env (админка часто запускается отдельно от systemd-бота)
-if load_dotenv is not None:
-    load_dotenv(dotenv_path=ENV_PATH, override=False)
-
-# Единый источник правды:
-# - сначала DATABASE_PATH (как у бота в systemd)
-# - затем DB_PATH (если где-то старое имя)
-# - затем локальный users.db (который у тебя сейчас симлинк на calmwaybot_data/users.db)
-DB_PATH = os.getenv("DATABASE_PATH") or os.getenv("DB_PATH") or os.path.join(BASE_DIR, "users.db")
-
-app = FastAPI(title="CalmWayBot - Admin Panel")
+app = FastAPI(title="CalmWayBot — Admin Panel")
 
 STYLE = """
 <style>
@@ -58,13 +55,7 @@ body {
 
 h1 {
     color: var(--accent);
-    margin-bottom: 10px;
-}
-
-.small-note {
-    opacity: 0.75;
-    font-size: 12px;
-    margin-bottom: 18px;
+    margin-bottom: 20px;
 }
 
 table {
@@ -112,6 +103,9 @@ a {
 </style>
 """
 
+# ===============================
+# Инициализация схемы БД
+# ===============================
 def ensure_schema():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -140,8 +134,12 @@ def ensure_schema():
     conn.commit()
     conn.close()
 
+
 ensure_schema()
 
+# ===============================
+# Утилиты
+# ===============================
 def fmt_time(ts: str) -> str:
     if not ts:
         return "-"
@@ -149,6 +147,7 @@ def fmt_time(ts: str) -> str:
         return datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return ts
+
 
 def get_users():
     conn = sqlite3.connect(DB_PATH)
@@ -161,6 +160,7 @@ def get_users():
     rows = cursor.fetchall()
     conn.close()
     return rows
+
 
 def has_consult_interest(user_id: int) -> bool:
     conn = sqlite3.connect(DB_PATH)
@@ -176,20 +176,23 @@ def has_consult_interest(user_id: int) -> bool:
     conn.close()
 
     for action, details in rows:
-        text = f"{action} {details}".lower()
+        text = f"{action or ''} {details or ''}".lower()
         if "консультац" in text:
             return True
 
     return False
 
+# ===============================
+# Роуты
+# ===============================
 @app.get("/panel-database", response_class=HTMLResponse)
 async def panel_main():
     users = get_users()
 
     rows_html = ""
     for user_id, source, step, subscribed, last_action, username in users:
-        subscribed_mark = "✅" if subscribed else "-"
-        consult_mark = "✅" if has_consult_interest(user_id) else "-"
+        subscribed_mark = "✅" if subscribed else "—"
+        consult_mark = "✅" if has_consult_interest(user_id) else "—"
         display_name = f"@{username}" if username else str(user_id)
         last_action_fmt = fmt_time(last_action)
 
@@ -201,14 +204,17 @@ async def panel_main():
             <td>{subscribed_mark}</td>
             <td>{consult_mark}</td>
             <td>{last_action_fmt}</td>
-            <td><a href="/panel-database/user/{user_id}"><button>История</button></a></td>
+            <td>
+                <a href="/panel-database/user/{user_id}">
+                    <button>История</button>
+                </a>
+            </td>
         </tr>
         """
 
     html = f"""
     {STYLE}
-    <h1>CalmWayBot - Users</h1>
-    <div class="small-note">DB: {DB_PATH}</div>
+    <h1>CalmWayBot — Users</h1>
 
     <table>
         <tr>
@@ -216,7 +222,7 @@ async def panel_main():
             <th>Источник</th>
             <th>Этап</th>
             <th>Подписан</th>
-            <th>Интерес к консультации</th>
+            <th>Интересовался консультацией</th>
             <th>Последнее действие</th>
             <th></th>
         </tr>
@@ -230,6 +236,7 @@ async def panel_main():
 
     return html
 
+
 @app.get("/panel-database/user/{user_id}", response_class=HTMLResponse)
 async def user_history(user_id: int):
     conn = sqlite3.connect(DB_PATH)
@@ -237,7 +244,7 @@ async def user_history(user_id: int):
     cursor.execute("""
         SELECT timestamp, action, details
         FROM events
-        WHERE user_id=?
+        WHERE user_id = ?
         ORDER BY id ASC
     """, (user_id,))
     events = cursor.fetchall()
@@ -253,9 +260,8 @@ async def user_history(user_id: int):
 
     html = f"""
     {STYLE}
-    <h1>История действий - {user_id}</h1>
-    <div class="small-note">DB: {DB_PATH}</div>
-    <a href="/panel-database">Назад</a>
+    <h1>История действий — {user_id}</h1>
+    <a href="/panel-database">⬅ Назад</a>
 
     <table>
         <tr><th>Время</th><th>Действие</th><th>Детали</th></tr>
@@ -264,6 +270,7 @@ async def user_history(user_id: int):
     """
 
     return html
+
 
 if __name__ == "__main__":
     import uvicorn
