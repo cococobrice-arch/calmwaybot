@@ -1,4 +1,4 @@
-л# Byte-compiled / compiled files
+# Byte-compiled / compiled files
 *.pyc
 __pycache__/
 
@@ -15,5 +15,8 @@ Thumbs.db
 # Scheduler or logs
 *.log
 
+users.db
+users.db.*
+*.db
 
 
