@@ -286,57 +286,60 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = (message.from_user.username or "").strip() or None
 
-    # ---- ОПРЕДЕЛЯЕМ ИСТОЧНИК ----
+    # ---- ОПРЕДЕЛЯЕМ ИСТОЧНИК ИЗ /start ПАРАМЕТРА ----
+    # Канонические значения: unknown / telegram / yandex-direct
     source = "unknown"
     parts = message.text.split(" ", 1)
     if len(parts) > 1:
-        param = parts[1].strip()
-        if param == "channel":
-            source = "telegram-channel"
-    # ------------------------------
+        param = parts[1].strip().lower()
+        if param == "telegram":
+            source = "telegram"
+        elif param == "yandex-direct":
+            source = "yandex-direct"
+    # -----------------------------------------------
 
     TEST_USER_ID = int(os.getenv("FAST_USER_ID", "0") or 0)
 
-    # ---- ПРОВЕРЯЕМ, НОВЫЙ ЛИ ЭТО ПОЛЬЗОВАТЕЛЬ ----
+    # ---- ПРОВЕРЯЕМ, ЕСТЬ ЛИ ПОЛЬЗОВАТЕЛЬ В БАЗЕ ----
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
-    cursor.execute("SELECT step FROM users WHERE user_id=?", (user_id,))
+    cursor.execute("SELECT step, source FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
     conn.close()
 
     # ---- ЕСЛИ ЮЗЕР УЖЕ В БАЗЕ И ЭТО НЕ ПЕРВЫЙ СТАРТ → НЕ ПОКАЗЫВАЕМ ПРИВЕТСТВИЕ ----
     if row is not None and row[0] != "старт":
-        log_event(user_id, "Повторный вход через /start – приветствие не показываем")
-        await message.answer("Вы уже начали работу со мной — продолжайте в удобном темпе 🙂")
+        log_event(user_id, "Повторный вход через /start - приветствие не показываем", None)
+        await message.answer("Вы уже начали работу со мной - продолжайте в удобном темпе 🙂")
         return
 
     # ---- ЕСЛИ ЭТО ТЕСТОВЫЙ ПОЛЬЗОВАТЕЛЬ → ПОЛНАЯ ОЧИСТКА ----
     if user_id == TEST_USER_ID:
         purge_user(user_id, keep_events=False)
-        log_event(user_id, "Очистка тестового пользователя")
+        log_event(user_id, "Очистка тестового пользователя", None)
     else:
-        # ---- НОВЫЙ ЮЗЕР: ОЧИСТИМ USERS/ANSWERS/MSG, НО ОСТАВИМ events ----
+        # ---- ДЛЯ ОБЫЧНЫХ: ОЧИЩАЕМ СОСТОЯНИЕ, НО СОХРАНЯЕМ events ----
         purge_user(user_id, keep_events=True)
 
-    # ---- ЗАПИСЫВАЕМ ИСТОЧНИК И СОЗДАЁМ ЗАПИСЬ ПОЛЬЗОВАТЕЛЯ ----
+    # ---- СОЗДАЁМ ЗАПИСЬ ПОЛЬЗОВАТЕЛЯ С НУЖНЫМ source ----
+    now = datetime.now().isoformat(timespec="seconds")
+
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
 
+    # после purge_user записи быть не должно, но оставляем защиту
     cursor.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,))
     exists = cursor.fetchone()
 
-    now = datetime.now().isoformat(timespec="seconds")
-
     if exists:
         cursor.execute(
-            "UPDATE users SET step=?, username=?, source=?, last_action=? WHERE user_id=?",
-            ("старт", username, source, now, user_id)
+            "UPDATE users SET step=?, username=?, last_action=? WHERE user_id=?",
+            ("старт", username, now, user_id),
         )
     else:
         cursor.execute(
-            "INSERT INTO users (user_id, source, step, subscribed, last_action, username) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, source, "старт", 0, now, username)
+            "INSERT INTO users (user_id, source, step, subscribed, last_action, username) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, source, "старт", 0, now, username),
         )
 
     conn.commit()
@@ -358,18 +361,19 @@ async def cmd_start(message: Message):
         "• головокружение🌀 \n"
         "• пот по спине😰 \n"
         "• страх потерять рассудок...\n"
-        "Вы стараетесь взять себя в руки, но чем сильнее пытаетесь успокоиться — тем страшнее становится. \n"
+        "Вы стараетесь взять себя в руки, но чем сильнее пытаетесь успокоиться - тем страшнее становится. \n"
         "Анализы крови, обследования сердца и сосудов показывают, что всё в норме. Но наплывы ужаса продолжают догонять Вас.\n\n"
         "Знакомо? \n\n"
         "Вероятно, Вы уже знаете, что такие наплывы страха называются <b>паническими атаками</b>.\n"
-        "Многие люди месяцами ищут причину этих приступов — и всё равно не могут понять, почему паника возвращается.\n"
+        "Многие люди месяцами ищут причину этих приступов - и всё равно не могут понять, почему паника возвращается.\n"
         "Я покажу, как ослабить её власть и перестать ждать нового приступа каждый день.\n\n"
-        "Эти состояния имеют чёткую внутреннюю закономерность — и когда Вы поймёте её, Вы сможете взять происходящее под контроль 🛥\n\n"
+        "Эти состояния имеют чёткую внутреннюю закономерность - и когда Вы поймёте её, Вы сможете взять происходящее под контроль 🛥\n\n"
         "Я приготовил материал, который поможет Вам разобраться, что запускает панические атаки, чем они поддерживаются и как наконец вернуться к расслабленной жизни.\n"
         "Скачайте его - и дайте отпор страху!",
         parse_mode="HTML",
         reply_markup=kb,
     )
+
 
 
 # =========================================================
