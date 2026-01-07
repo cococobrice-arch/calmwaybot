@@ -287,15 +287,26 @@ async def cmd_start(message: Message):
     username = (message.from_user.username or "").strip() or None
 
     # ---- ОПРЕДЕЛЯЕМ ИСТОЧНИК ИЗ /start ПАРАМЕТРА ----
-    # Канонические значения: unknown / telegram / yandex-direct
+    # Канонические значения:
+    # unknown / telegram / yandex-direct / yandex-rsya / yandex-search
     source = "unknown"
+
     parts = message.text.split(" ", 1)
     if len(parts) > 1:
         param = parts[1].strip().lower()
+
         if param == "telegram":
             source = "telegram"
+
         elif param == "yandex-direct":
             source = "yandex-direct"
+
+        elif param == "yandex-rsya":
+            source = "yandex-rsya"
+
+        elif param == "yandex-search":
+            source = "yandex-search"
+
     # -----------------------------------------------
 
     TEST_USER_ID = int(os.getenv("FAST_USER_ID", "0") or 0)
